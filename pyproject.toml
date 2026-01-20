@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jobscraper"
+version = "1.0.0"
+description = "Agrégateur d'offres d'emploi en France - LinkedIn, HelloWork, France Travail, WTTJ, Adzuna"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "JobScraper Contributors"}
+]
+keywords = ["scraping", "jobs", "linkedin", "france", "emploi", "hellowork", "wttj", "france-travail"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "selenium>=4.15.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+    "tenacity>=8.2.0",
+    "loguru>=0.7.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.7.0",
+]
+async = [
+    "aiohttp>=3.9.0",
+    "playwright>=1.40.0",
+]
+
+[project.scripts]
+jobscraper = "jobscraper.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/zeffut/jobscraper"
+Repository = "https://github.com/zeffut/jobscraper"
+Issues = "https://github.com/zeffut/jobscraper/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
