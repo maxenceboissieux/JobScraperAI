@@ -39,7 +39,7 @@ def test_classify_duplicate_marks_close_titles_as_possible() -> None:
     """Fails if titles above the possible threshold are discarded instead of surfaced."""
 
     decision = classify_duplicate(
-        Job("Développeur Python", "Acme", "Paris, France"),
+        Job("Développeur Python", "Acme", "Paris"),
         Job("Développeur Python Backend", "ACME", "Paris"),
     )
 
@@ -278,23 +278,16 @@ def test_city_with_remote_qualifier_vetoes_a_different_explicit_city() -> None:
         "Paris - remote",
         "Paris – à distance",
         "Paris télétravail",
-        "Remote Paris",
         "Paris hybride 2 jours par semaine",
-        "Hybride 2 jours par semaine Paris",
         "Paris 100% télétravail",
-        "100% télétravail Paris",
         "Paris 80% télétravail",
-        "80% télétravail Paris",
-        "Télétravail possible Paris",
         "Paris télétravail flexible",
-        "Remote Europe Paris",
         "Paris remote Europe",
         "Paris / Hybride 2 jours/semaine",
         "Paris | Hybride 2 jours/semaine",
         "Paris ; Hybride 2 jours/semaine",
         "Paris (Hybride 2 jours/semaine)",
         "Paris - Hybride 2 jours/semaine",
-        "Télétravail 80% Paris",
         "Paris Télétravail 80%",
     ],
 )
@@ -319,6 +312,130 @@ def test_structural_and_bounded_remote_qualifiers_retain_paris_evidence(
     assert classify_duplicate(paris, qualified) == confirmed
     assert classify_duplicate(qualified, lyon) == vetoed
     assert classify_duplicate(lyon, qualified) == vetoed
+
+
+@pytest.mark.parametrize(
+    ("remote_first", "remote_last"),
+    [
+        ("Télétravail occasionnel, Paris", "Paris, Télétravail occasionnel"),
+        ("Télétravail occasionnel / Paris", "Paris / Télétravail occasionnel"),
+        ("Télétravail occasionnel | Paris", "Paris | Télétravail occasionnel"),
+        ("Télétravail occasionnel ; Paris", "Paris ; Télétravail occasionnel"),
+        ("Télétravail occasionnel (Paris)", "Paris (Télétravail occasionnel)"),
+        ("Télétravail occasionnel - Paris", "Paris - Télétravail occasionnel"),
+        ("Télétravail occasionnel – Paris", "Paris – Télétravail occasionnel"),
+        ("Télétravail occasionnel — Paris", "Paris — Télétravail occasionnel"),
+    ],
+)
+def test_structural_remote_and_place_clauses_are_symmetric(
+    remote_first: str, remote_last: str
+) -> None:
+    """Fails if delimiter direction changes the retained city evidence."""
+
+    paris = Job("Développeur Python", "Acme", "Paris")
+    lyon = Job("Développeur Python Backend", "ACME", "Lyon")
+    confirmed = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    vetoed = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("villes_incompatibles",)
+    )
+
+    for qualified_location in (remote_first, remote_last):
+        qualified = Job("Développeur Python", "ACME", qualified_location)
+        assert classify_duplicate(qualified, paris) == confirmed
+        assert classify_duplicate(paris, qualified) == confirmed
+        assert classify_duplicate(qualified, lyon) == vetoed
+        assert classify_duplicate(lyon, qualified) == vetoed
+
+
+def test_remote_prefix_with_a_place_preposition_retains_city_evidence() -> None:
+    """Fails if ``télétravail à Paris`` retains the preposition in its key."""
+
+    qualified = Job("Développeur Python", "Acme", "Télétravail à Paris")
+    paris = Job("Développeur Python", "ACME", "Paris")
+    lyon = Job("Développeur Python Backend", "ACME", "Lyon")
+
+    confirmed = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    vetoed = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("villes_incompatibles",)
+    )
+    assert classify_duplicate(qualified, paris) == confirmed
+    assert classify_duplicate(paris, qualified) == confirmed
+    assert classify_duplicate(qualified, lyon) == vetoed
+    assert classify_duplicate(lyon, qualified) == vetoed
+
+
+@pytest.mark.parametrize(
+    "remote_location",
+    [
+        "Télétravail occasionnel",
+        "Télétravail ponctuel",
+        "Télétravail régulier",
+        "Télétravail selon accord",
+        "Télétravail à convenir",
+        "Remote Paris",
+        "Hybride 2 jours par semaine Paris",
+        "100% télétravail Paris",
+        "80% télétravail Paris",
+        "Télétravail possible Paris",
+        "Remote Europe Paris",
+        "Télétravail 80% Paris",
+        "Télétravail Arbitraireville",
+    ],
+)
+def test_unbounded_remote_prefix_tail_never_becomes_city_evidence(
+    remote_location: str,
+) -> None:
+    """Fails if an arbitrary post-mode tail is promoted to a city key."""
+
+    remote = Job("Développeur Python", "Acme", remote_location)
+    same = Job("Développeur Python", "ACME", remote_location)
+    paris = Job("Développeur Python", "ACME", "Paris")
+    expected = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
+
+    assert classify_duplicate(remote, same) == expected
+    assert classify_duplicate(same, remote) == expected
+    assert classify_duplicate(remote, paris) == expected
+    assert classify_duplicate(paris, remote) == expected
+
+
+def test_remote_country_preposition_retains_non_city_scope() -> None:
+    """Fails if ``en France`` becomes an explicit city or loses its country key."""
+
+    remote_france = Job("Développeur Python Backend", "Acme", "Télétravail en France")
+    france = Job("Développeur Python", "ACME", "France")
+    belgium = Job("Développeur Python", "ACME", "Belgique")
+    possible = DuplicateDecision(
+        "possible",
+        pytest.approx(0.8181818181818182),
+        ("entreprise_identique", "lieu_compatible", "titre_proche"),
+    )
+    incompatible = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("lieux_incompatibles",)
+    )
+
+    assert classify_duplicate(remote_france, france) == possible
+    assert classify_duplicate(france, remote_france) == possible
+    assert classify_duplicate(remote_france, belgium) == incompatible
+    assert classify_duplicate(belgium, remote_france) == incompatible
+
+
+def test_remote_country_scope_cannot_confirm_an_exact_title() -> None:
+    """Fails if a remote country scope is treated as an explicit city."""
+
+    remote_france = Job("Développeur Python", "Acme", "Télétravail en France")
+    france = Job("Développeur Python", "ACME", "France")
+    expected = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
+
+    assert classify_duplicate(remote_france, france) == expected
+    assert classify_duplicate(france, remote_france) == expected
 
 
 def test_internal_place_hyphens_survive_remote_clause_parsing() -> None:
@@ -440,6 +557,47 @@ def test_remote_qualified_regions_preserve_region_incompatibility() -> None:
     assert classify_duplicate(normandie, bretagne) == expected
 
 
+@pytest.mark.parametrize(
+    "conflicted_location",
+    [
+        "Paris / Belgique / remote",
+        "remote / Paris / Belgique",
+        "Paris, Belgique, remote",
+        "remote, Paris, Belgique",
+        "Paris | Belgique | remote",
+        "remote | Paris | Belgique",
+        "Paris ; Belgique ; remote",
+        "remote ; Paris ; Belgique",
+        "Paris (Belgique) (remote)",
+        "remote (Paris) (Belgique)",
+        "Paris - Belgique - remote",
+        "remote - Paris - Belgique",
+        "Paris – Belgique – remote",
+        "remote – Paris – Belgique",
+        "Paris — Belgique — remote",
+        "remote — Paris — Belgique",
+        "Paris / France / remote",
+        "Paris / Île-de-France / remote",
+        "Paris / Belgique",
+        "Paris, France",
+    ],
+)
+def test_city_with_separate_country_or_region_clause_is_conflicting_evidence(
+    conflicted_location: str,
+) -> None:
+    """Fails if structural non-city evidence is discarded beside a city."""
+
+    conflicted = Job("Développeur Python", "Acme", conflicted_location)
+    same = Job("Développeur Python", "ACME", conflicted_location)
+    paris = Job("Développeur Python", "ACME", "Paris")
+    expected = DuplicateDecision("none", 1.0, ("lieux_incompatibles",))
+
+    assert classify_duplicate(conflicted, same) == expected
+    assert classify_duplicate(same, conflicted) == expected
+    assert classify_duplicate(conflicted, paris) == expected
+    assert classify_duplicate(paris, conflicted) == expected
+
+
 def test_different_country_labels_are_not_location_compatible() -> None:
     """Fails if two country-level labels can form a cross-country candidate."""
 
@@ -494,7 +652,7 @@ def test_classification_is_symmetric_and_decision_is_immutable() -> None:
     """Fails if source ordering changes a reciprocal duplicate decision."""
 
     left = Job("Développeur Python", "Acme S.A.S.", "Paris (75)")
-    right = Job("Développeur Python Backend", "Acme", "Paris, France")
+    right = Job("Développeur Python Backend", "Acme", "Paris")
 
     decision = classify_duplicate(left, right)
 

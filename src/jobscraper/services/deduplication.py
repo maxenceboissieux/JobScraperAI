@@ -12,6 +12,9 @@ from jobscraper.services.normalization import (
 )
 
 DuplicateKind = Literal["confirmed", "possible", "none"]
+_LocationEvidenceKind = Literal[
+    "place", "non_city", "remote_descriptor", "unknown", "conflict"
+]
 CONFIRMED_TITLE_SCORE = 0.92
 POSSIBLE_TITLE_SCORE = 0.78
 
@@ -31,6 +34,14 @@ class DuplicateDecision:
     kind: DuplicateKind
     score: float
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _LocationEvidence:
+    """One conservative interpretation of a raw location label."""
+
+    kind: _LocationEvidenceKind
+    key: str = ""
 
 
 def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
@@ -60,14 +71,16 @@ def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
     ):
         return DuplicateDecision("none", score, ("seniorite_incompatible",))
 
-    left_location = _location_evidence_key(left.location)
-    right_location = _location_evidence_key(right.location)
+    left_location = _location_evidence(left.location)
+    right_location = _location_evidence(right.location)
     left_location_is_explicit = _is_explicit_location(left_location)
     right_location_is_explicit = _is_explicit_location(right_location)
+    if left_location.kind == "conflict" or right_location.kind == "conflict":
+        return DuplicateDecision("none", score, ("lieux_incompatibles",))
     if (
         left_location_is_explicit
         and right_location_is_explicit
-        and left_location != right_location
+        and left_location.key != right_location.key
     ):
         return DuplicateDecision("none", score, ("villes_incompatibles",))
     if not _locations_compatible(left_location, right_location):
@@ -76,7 +89,7 @@ def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
     if (
         left_location_is_explicit
         and right_location_is_explicit
-        and left_location == right_location
+        and left_location.key == right_location.key
         and score >= CONFIRMED_TITLE_SCORE
     ):
         return DuplicateDecision(
@@ -94,7 +107,7 @@ def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
 
     if not (left_location_is_explicit and right_location_is_explicit):
         return DuplicateDecision("none", score, ("lieu_non_explicite",))
-    if left_location != right_location:
+    if left_location.key != right_location.key:
         return DuplicateDecision("none", score, ("lieu_compatible_non_identique",))
     return DuplicateDecision("none", score, ("titre_insuffisant",))
 
@@ -116,7 +129,7 @@ def ordered_duplicate_pair_ids(left_id: int, right_id: int) -> tuple[int, int]:
     return (left_id, right_id) if left_id < right_id else (right_id, left_id)
 
 
-def _locations_compatible(left: str, right: str) -> bool:
+def _locations_compatible(left: _LocationEvidence, right: _LocationEvidence) -> bool:
     """Allow only exact place agreement or one genuinely unknown location.
 
     Region labels are not city evidence.  They may support a possible match
@@ -127,36 +140,23 @@ def _locations_compatible(left: str, right: str) -> bool:
 
     if left == right:
         return True
-    return _is_unknown_location(left) or _is_unknown_location(right)
+    return left.kind == "unknown" or right.kind == "unknown"
 
 
 def _is_explicit_company(company: str) -> bool:
     return bool(company) and _NON_EXPLICIT_COMPANY.fullmatch(company) is None
 
 
-def _is_explicit_location(location: str) -> bool:
-    return (
-        bool(location)
-        and not _is_unknown_location(location)
-        and location not in _COUNTRY_LOCATION_KEYS
-        and location not in _REGION_LOCATION_KEYS
-    )
+def _is_explicit_location(location: _LocationEvidence) -> bool:
+    return location.kind == "place"
 
 
 def _is_unknown_location(location: str) -> bool:
     return not location or _UNKNOWN_LOCATION.fullmatch(location) is not None
 
 
-def _location_evidence_key(raw_location: str) -> str:
-    """Extract conservative place evidence without rewriting place tokens.
-
-    Remote clauses are discarded only across explicit separators.  An
-    undelimited qualifier is removed only at a bounded edge; an ambiguous
-    mixed label remains unknown rather than becoming an invented city key.
-    """
-
-    if _is_remote_descriptor(raw_location):
-        return ""
+def _location_evidence(raw_location: str) -> _LocationEvidence:
+    """Parse raw clauses into place, non-city, unknown, or conflict evidence."""
 
     clause_source = _REMOTE_CADENCE_SLASH.sub(r"\1 par \2", raw_location)
     clauses = [
@@ -164,69 +164,126 @@ def _location_evidence_key(raw_location: str) -> str:
         for clause in _LOCATION_CLAUSE_SEPARATOR.split(clause_source)
         if clause.strip()
     ]
-    remote_clauses = [clause for clause in clauses if _is_remote_descriptor(clause)]
-    if remote_clauses:
-        return _place_key_from_clauses(
-            [clause for clause in clauses if not _is_remote_descriptor(clause)]
+    if not clauses:
+        return _LocationEvidence("unknown")
+
+    has_remote_context = any(
+        _has_remote_qualifier(normalize_location(clause).split()) for clause in clauses
+    )
+    parsed_clauses = [
+        (clause, evidence)
+        for clause in clauses
+        if (
+            evidence := _location_clause_evidence(
+                clause, has_remote_context=has_remote_context
+            )
         )
+        is not None
+    ]
+    parsed = [evidence for _, evidence in parsed_clauses]
+    if any(evidence.kind == "conflict" for evidence in parsed):
+        return _LocationEvidence("conflict")
 
-    location = normalize_location(raw_location)
-    tokens = location.split()
-    if not _has_remote_qualifier(tokens):
-        return location
-    match = _REMOTE_PREFIX.fullmatch(raw_location.strip()) or _REMOTE_SUFFIX.fullmatch(
-        raw_location.strip()
+    remote_bearing_places = [
+        evidence
+        for clause, evidence in parsed_clauses
+        if evidence.kind == "place"
+        and _has_remote_qualifier(normalize_location(clause).split())
+    ]
+    remote_clause_count = sum(
+        _has_remote_qualifier(normalize_location(clause).split()) for clause in clauses
     )
-    if match is None:
-        return ""
-    place = normalize_location(match.group("place"))
-    if not _is_safe_bounded_place(place):
-        return ""
-    return place
+    if remote_clause_count > 1 and remote_bearing_places:
+        return _LocationEvidence("unknown")
+
+    places = {evidence for evidence in parsed if evidence.kind == "place"}
+    non_city_scopes = {evidence for evidence in parsed if evidence.kind == "non_city"}
+    has_unknown = any(evidence.kind == "unknown" for evidence in parsed)
+    concrete = places | non_city_scopes
+    if places and non_city_scopes:
+        return _LocationEvidence("conflict")
+    if len(places) > 1:
+        return _LocationEvidence("unknown")
+    if len(non_city_scopes) > 1 or (concrete and has_unknown):
+        return _LocationEvidence("conflict")
+    if concrete:
+        return next(iter(concrete))
+    return _LocationEvidence("unknown")
 
 
-def _place_key_from_clauses(clauses: list[str]) -> str:
-    place_keys: list[str] = []
-    country_keys: set[str] = set()
-    for clause in clauses:
-        key = normalize_location(clause)
-        if not key or _DEPARTMENT_CLAUSE.fullmatch(key) is not None:
-            continue
-        if key in _COUNTRY_LOCATION_KEYS:
-            country_keys.add(key)
-            continue
-        if not _is_safe_structural_place(key):
-            return ""
-        place_keys.append(key)
-    if len(place_keys) > 1 or len(country_keys) > 1:
-        return ""
-    if place_keys:
-        return place_keys[0]
-    return next(iter(country_keys), "")
+def _location_clause_evidence(
+    raw_clause: str, *, has_remote_context: bool
+) -> _LocationEvidence | None:
+    key = normalize_location(raw_clause)
+    if not key or _DEPARTMENT_CLAUSE.fullmatch(key) is not None:
+        return None
+    if _is_unknown_location(key):
+        return _LocationEvidence("unknown")
+
+    tokens = key.split()
+    if _has_remote_qualifier(tokens):
+        return _remote_clause_evidence(raw_clause)
+    if has_remote_context and (
+        _REMOTE_RESIDUAL_TOKENS.intersection(tokens) or key in _REMOTE_SCOPE_KEYS
+    ):
+        return _LocationEvidence("remote_descriptor")
+    return _evidence_for_key(key)
 
 
-def _is_remote_descriptor(value: str) -> bool:
-    tokens = normalize_location(value).split()
-    return _has_remote_qualifier(tokens) and all(
+def _remote_clause_evidence(raw_clause: str) -> _LocationEvidence:
+    preposition_match = _REMOTE_PREFIX_PREPOSITION.fullmatch(raw_clause.strip())
+    if preposition_match is not None:
+        preposition = normalize_location(preposition_match.group("preposition"))
+        candidate = normalize_location(preposition_match.group("place"))
+        if _is_remote_descriptor_key(candidate):
+            return _LocationEvidence("remote_descriptor")
+        evidence = _bounded_location_evidence(candidate)
+        if preposition == "en" and evidence.kind != "non_city":
+            return _LocationEvidence("remote_descriptor")
+        return evidence
+
+    prefix_match = _REMOTE_MODE_PREFIX.fullmatch(raw_clause.strip())
+    if prefix_match is not None:
+        tail = normalize_location(prefix_match.group("tail") or "")
+        if not tail or _is_remote_descriptor_key(tail):
+            return _LocationEvidence("remote_descriptor")
+        direct_scope = _evidence_for_key(tail)
+        if direct_scope.kind == "non_city":
+            return direct_scope
+        return _LocationEvidence("remote_descriptor")
+
+    suffix_match = _REMOTE_SUFFIX.fullmatch(raw_clause.strip())
+    if suffix_match is not None:
+        return _bounded_location_evidence(
+            normalize_location(suffix_match.group("place"))
+        )
+    return _LocationEvidence("unknown")
+
+
+def _bounded_location_evidence(key: str) -> _LocationEvidence:
+    if (
+        not key
+        or _is_unknown_location(key)
+        or _has_remote_qualifier(key.split())
+        or _REMOTE_RESIDUAL_TOKENS.intersection(key.split())
+        or key in _REMOTE_SCOPE_KEYS
+    ):
+        return _LocationEvidence("remote_descriptor")
+    return _evidence_for_key(key)
+
+
+def _evidence_for_key(key: str) -> _LocationEvidence:
+    if _is_unknown_location(key):
+        return _LocationEvidence("unknown")
+    if key in _COUNTRY_LOCATION_KEYS or key in _REGION_LOCATION_KEYS:
+        return _LocationEvidence("non_city", key)
+    return _LocationEvidence("place", key)
+
+
+def _is_remote_descriptor_key(key: str) -> bool:
+    tokens = key.split()
+    return bool(tokens) and all(
         token.isdigit() or token in _REMOTE_DESCRIPTOR_TOKENS for token in tokens
-    )
-
-
-def _is_safe_bounded_place(place: str) -> bool:
-    return bool(place) and not (
-        _has_remote_qualifier(place.split())
-        or _REMOTE_RESIDUAL_TOKENS.intersection(place.split())
-        or _is_unknown_location(place)
-        or place in _REMOTE_SCOPE_KEYS
-    )
-
-
-def _is_safe_structural_place(place: str) -> bool:
-    tokens = place.split()
-    return bool(place) and not (
-        _has_remote_qualifier(tokens)
-        or _REMOTE_RESIDUAL_TOKENS.intersection(tokens)
-        or _is_unknown_location(place)
     )
 
 
@@ -285,8 +342,13 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
     {
         "100",
         "a",
+        "accord",
+        "accords",
+        "alternatif",
+        "alternative",
         "complet",
         "complete",
+        "convenir",
         "distance",
         "en",
         "europe",
@@ -297,14 +359,22 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
         "international",
         "jour",
         "jours",
+        "la",
         "monde",
+        "occasionnel",
+        "occasionnelle",
+        "ponctuel",
+        "ponctuelle",
         "pourcent",
         "par",
         "partiel",
         "partielle",
         "possible",
+        "regulier",
+        "reguliere",
         "remote",
         "semaine",
+        "selon",
         "teletravail",
         "total",
         "totale",
@@ -313,7 +383,7 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
 )
 _REMOTE_RESIDUAL_TOKENS = _REMOTE_DESCRIPTOR_TOKENS - {"a", "en"}
 _REMOTE_SCOPE_KEYS = frozenset({"europe", "international", "monde", "worldwide"})
-_LOCATION_CLAUSE_SEPARATOR = re.compile(r"\s*(?:[/|;()]|\s[-–—]\s)\s*")
+_LOCATION_CLAUSE_SEPARATOR = re.compile(r"\s*(?:[,/|;()]|\s[-–—]\s)\s*")
 _REMOTE_CADENCE_SLASH = re.compile(r"\b(jours?)\s*/\s*(semaine)\b", re.IGNORECASE)
 _DEPARTMENT_CLAUSE = re.compile(r"(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])")
 _REMOTE_MODE_PATTERN = r"(?:remote|t[eé]l[eé]travail|hybrid|hybride|[aà]\s+distance)"
@@ -321,6 +391,8 @@ _REMOTE_PERCENTAGE_PATTERN = r"(?:100(?:\s*(?:%|pourcent))?|\d{1,2}\s*(?:%|pourc
 _REMOTE_LEADING_MODIFIER_PATTERN = rf"(?:en|full|{_REMOTE_PERCENTAGE_PATTERN})"
 _REMOTE_TRAILING_MODIFIER_PATTERN = (
     r"(?:partiel|partielle|possible|flexible|complet|complete|total|totale|"
+    r"occasionnel|occasionnelle|ponctuel|ponctuelle|regulier|reguliere|"
+    r"selon\s+accords?|[aà]\s+convenir|"
     r"europe|international|monde|worldwide|"
     rf"{_REMOTE_PERCENTAGE_PATTERN}|\d+\s+jours?(?:\s+par\s+semaine)?)"
 )
@@ -329,8 +401,14 @@ _REMOTE_QUALIFIER_PATTERN = (
     rf"{_REMOTE_MODE_PATTERN}"
     rf"(?:\s+{_REMOTE_TRAILING_MODIFIER_PATTERN})*"
 )
-_REMOTE_PREFIX = re.compile(
-    rf"^(?:{_REMOTE_QUALIFIER_PATTERN})\s+(?P<place>.+)$",
+_REMOTE_PREFIX_PREPOSITION = re.compile(
+    rf"^(?:{_REMOTE_QUALIFIER_PATTERN})\s+"
+    rf"(?P<preposition>[aà]|en)\s+(?P<place>.+)$",
+    re.IGNORECASE,
+)
+_REMOTE_MODE_PREFIX = re.compile(
+    rf"^(?:{_REMOTE_LEADING_MODIFIER_PATTERN}\s+)*"
+    rf"{_REMOTE_MODE_PATTERN}(?:\s+(?P<tail>.+))?$",
     re.IGNORECASE,
 )
 _REMOTE_SUFFIX = re.compile(
