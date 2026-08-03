@@ -125,6 +125,86 @@ def test_incompatible_explicit_seniority_forces_no_match() -> None:
     assert decision.reasons == ("seniorite_incompatible",)
 
 
+@pytest.mark.parametrize(
+    "company", ["Non spécifié", "Entreprise confidentielle", "SAS"]
+)
+def test_unknown_or_legal_only_company_never_classifies_duplicates(
+    company: str,
+) -> None:
+    """Fails if placeholder company names collapse unrelated source listings."""
+
+    left = Job("Développeur Python", company, "Paris")
+    right = Job("Développeur Python", company, "Paris")
+
+    expected = DuplicateDecision("none", 1.0, ("entreprise_non_explicite",))
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+@pytest.mark.parametrize("location", ["France", "Télétravail"])
+def test_unknown_location_cannot_confirm_an_exact_title(location: str) -> None:
+    """Fails if a country-level placeholder is treated as an explicit city."""
+
+    left = Job("Développeur Python", "Acme", location)
+    right = Job("Développeur Python", "ACME", location)
+
+    expected = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_unknown_location_can_only_support_a_thresholded_possible_match() -> None:
+    """Fails if unknown location either blocks all candidates or confirms them."""
+
+    left = Job("Développeur Python", "Acme", "Non spécifié")
+    right = Job("Développeur Python Backend", "ACME", "Paris")
+
+    expected = DuplicateDecision(
+        "possible",
+        pytest.approx(0.8181818181818182),
+        ("entreprise_identique", "lieu_compatible", "titre_proche"),
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_saint_denis_variants_are_different_explicit_places_in_both_orders() -> None:
+    """Fails if token-subset location matching merges distinct named places."""
+
+    left = Job("Développeur Python", "Acme", "Saint-Denis")
+    right = Job("Développeur Python", "ACME", "Saint-Denis-sur-Loire")
+
+    expected = DuplicateDecision("none", 1.0, ("villes_incompatibles",))
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_sr_and_jr_seniority_abbreviations_veto_matching_in_both_orders() -> None:
+    """Fails if common seniority abbreviations leave incompatible jobs mergeable."""
+
+    left = Job("Data Engineer Sr", "Acme", "Paris")
+    right = Job("Data Engineer Jr", "ACME", "Paris")
+
+    expected = DuplicateDecision(
+        "none", pytest.approx(0.9375), ("seniorite_incompatible",)
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_compound_seniority_uses_the_highest_effective_level_in_both_orders() -> None:
+    """Fails if a compound title depends on marker order instead of effective level."""
+
+    left = Job("Data Engineer Senior Lead", "Acme", "Paris")
+    right = Job("Data Engineer Senior", "ACME", "Paris")
+
+    expected = DuplicateDecision(
+        "none", pytest.approx(0.8888888888888888), ("seniorite_incompatible",)
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
 def test_classification_is_symmetric_and_decision_is_immutable() -> None:
     """Fails if source ordering changes a reciprocal duplicate decision."""
 

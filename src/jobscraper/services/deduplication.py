@@ -33,11 +33,20 @@ class DuplicateDecision:
 
 
 def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
-    """Classify two job records without I/O, persistence, or source preference."""
+    """Classify two job records without I/O, persistence, or source preference.
+
+    A duplicate requires an explicit company.  Confirmed matches additionally
+    require the same explicit location.  Unknown locations can only leave room
+    for a thresholded possible match: they are never confirmation evidence.
+    """
 
     left_company = normalize_company(left.company)
     right_company = normalize_company(right.company)
     score = title_similarity(left.title, right.title)
+    if not _is_explicit_company(left_company) or not _is_explicit_company(
+        right_company
+    ):
+        return DuplicateDecision("none", score, ("entreprise_non_explicite",))
     if left_company != right_company:
         return DuplicateDecision("none", score, ("entreprise_differente",))
 
@@ -52,10 +61,23 @@ def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
 
     left_location = normalize_location(left.location)
     right_location = normalize_location(right.location)
-    if not _locations_compatible(left_location, right_location):
+    left_location_is_explicit = _is_explicit_location(left_location)
+    right_location_is_explicit = _is_explicit_location(right_location)
+    if (
+        left_location_is_explicit
+        and right_location_is_explicit
+        and left_location != right_location
+    ):
         return DuplicateDecision("none", score, ("villes_incompatibles",))
+    if not _locations_compatible(left_location, right_location):
+        return DuplicateDecision("none", score, ("lieux_incompatibles",))
 
-    if left_location == right_location and score >= CONFIRMED_TITLE_SCORE:
+    if (
+        left_location_is_explicit
+        and right_location_is_explicit
+        and left_location == right_location
+        and score >= CONFIRMED_TITLE_SCORE
+    ):
         return DuplicateDecision(
             "confirmed",
             score,
@@ -69,6 +91,8 @@ def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
             ("entreprise_identique", "lieu_compatible", "titre_proche"),
         )
 
+    if not (left_location_is_explicit and right_location_is_explicit):
+        return DuplicateDecision("none", score, ("lieu_non_explicite",))
     if left_location != right_location:
         return DuplicateDecision("none", score, ("lieu_compatible_non_identique",))
     return DuplicateDecision("none", score, ("titre_insuffisant",))
@@ -92,65 +116,140 @@ def ordered_duplicate_pair_ids(left_id: int, right_id: int) -> tuple[int, int]:
 
 
 def _locations_compatible(left: str, right: str) -> bool:
-    if left == right or not left or not right:
+    """Allow only exact place agreement or one genuinely unknown location.
+
+    Region labels are not city evidence.  They may support a possible match
+    only when the normalized regional label is identical; different regions,
+    and an explicit city paired with a region, fail closed because this service
+    intentionally has no geographical containment database.
+    """
+
+    if left == right:
         return True
-    left_specific = _specific_location_tokens(left)
-    right_specific = _specific_location_tokens(right)
-    if not left_specific or not right_specific:
-        return True
-    return left_specific.issubset(right_specific) or right_specific.issubset(
-        left_specific
+    return _is_unknown_location(left) or _is_unknown_location(right)
+
+
+def _is_explicit_company(company: str) -> bool:
+    return bool(company) and company not in _UNKNOWN_COMPANY_KEYS
+
+
+def _is_explicit_location(location: str) -> bool:
+    return (
+        bool(location)
+        and not _is_unknown_location(location)
+        and location not in _REGION_LOCATION_KEYS
     )
 
 
-def _specific_location_tokens(location: str) -> frozenset[str]:
-    broad_tokens = frozenset(
-        {
-            "de",
-            "france",
-            "ile",
-            "metropolitaine",
-            "national",
-            "region",
-            "remote",
-            "teletravail",
-            "hybride",
-            "hybrid",
-        }
-    )
-    return frozenset(token for token in location.split() if token not in broad_tokens)
+def _is_unknown_location(location: str) -> bool:
+    return location in _UNKNOWN_LOCATION_KEYS
 
 
 def _seniority(job: JobLike) -> str | None:
+    """Return the highest explicit seniority level from data and title tokens.
+
+    Marker order cannot alter the result: a compound ``Senior Lead`` title is
+    lead, and ``Sr``/``Jr`` are treated as senior/junior respectively.  A
+    structured source level participates in the same maximum, rather than
+    overriding a stronger explicit title marker.
+    """
+
+    levels: set[str] = set()
     declared_level = getattr(job, "experience_level", None)
     if declared_level is not None:
         level_value = str(getattr(declared_level, "value", declared_level)).casefold()
         if level_value in _SENIORITY_LEVELS:
-            return level_value
+            levels.add(level_value)
 
-    title = normalize_title(job.title)
-    for marker, level in _TITLE_SENIORITY_MARKERS:
-        if marker in title.split():
-            return level
-    return None
+    for marker in normalize_title(job.title).split():
+        level = _TITLE_SENIORITY_MARKERS.get(marker)
+        if level is not None:
+            levels.add(level)
+    return max(levels, key=_SENIORITY_RANK.__getitem__) if levels else None
+
+
+_UNKNOWN_COMPANY_KEYS = frozenset(
+    {
+        "",
+        "entreprise confidentielle",
+        "confidentiel",
+        "inconnu",
+        "n a",
+        "non communique",
+        "non renseigne",
+        "non specifie",
+        "not specified",
+        "unknown",
+    }
+)
+_UNKNOWN_LOCATION_KEYS = frozenset(
+    {
+        "",
+        "a distance",
+        "france entiere",
+        "hybrid",
+        "hybride",
+        "inconnu",
+        "n a",
+        "national",
+        "nationale",
+        "non communique",
+        "non renseigne",
+        "non specifie",
+        "not specified",
+        "remote",
+        "teletravail",
+        "unknown",
+    }
+)
+_REGION_LOCATION_KEYS = frozenset(
+    {
+        "auvergne rhone alpes",
+        "bourgogne franche comte",
+        "bretagne",
+        "centre val de loire",
+        "corse",
+        "grand est",
+        "hauts de france",
+        "ile de france",
+        "normandie",
+        "nouvelle aquitaine",
+        "occitanie",
+        "pays de la loire",
+        "provence alpes cote d azur",
+    }
+)
 
 
 _SENIORITY_LEVELS = frozenset(
     {"internship", "junior", "mid", "senior", "lead", "director"}
 )
-_TITLE_SENIORITY_MARKERS = (
-    ("stagiaire", "internship"),
-    ("stage", "internship"),
-    ("alternance", "internship"),
-    ("apprenti", "internship"),
-    ("junior", "junior"),
-    ("debutant", "junior"),
-    ("confirme", "mid"),
-    ("senior", "senior"),
-    ("expert", "senior"),
-    ("lead", "lead"),
-    ("principal", "lead"),
-    ("staff", "lead"),
-    ("directeur", "director"),
-    ("director", "director"),
-)
+_SENIORITY_RANK = {
+    "internship": 0,
+    "junior": 1,
+    "mid": 2,
+    "senior": 3,
+    "lead": 4,
+    "director": 5,
+}
+_TITLE_SENIORITY_MARKERS = {
+    "alternance": "internship",
+    "alternant": "internship",
+    "apprenti": "internship",
+    "intern": "internship",
+    "stage": "internship",
+    "stagiaire": "internship",
+    "debutant": "junior",
+    "jr": "junior",
+    "junior": "junior",
+    "confirme": "mid",
+    "intermediaire": "mid",
+    "expert": "senior",
+    "senior": "senior",
+    "sr": "senior",
+    "lead": "lead",
+    "principal": "lead",
+    "staff": "lead",
+    "directeur": "director",
+    "director": "director",
+}
