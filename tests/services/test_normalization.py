@@ -56,6 +56,9 @@ def test_normalize_location_removes_department_suffix_without_merging_cities() -
     [
         ("Paris, France", "paris"),
         ("Paris (France)", "paris"),
+        ("Paris - France", "paris"),
+        ("Paris – France", "paris"),
+        ("Paris — France", "paris"),
         ("France", "france"),
         ("Île-de-France", "ile de france"),
         ("Hauts-de-France", "hauts de france"),

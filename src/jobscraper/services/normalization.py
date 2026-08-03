@@ -13,7 +13,7 @@ _SEPARATED_DEPARTMENT = re.compile(
 _DEPARTMENT_TOKEN = re.compile(r"^(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])$")
 _EXACT_FRANCE = re.compile(r"^\s*france\s*$")
 _TRAILING_FRANCE_QUALIFIER = re.compile(
-    r"(?:\s*,\s*france|\s+-\s+france|\s*\(\s*france\s*\))\s*$"
+    r"(?:\s*,\s*france|\s+[-–—]\s+france|\s*\(\s*france\s*\))\s*$"
 )
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 _LEGAL_SUFFIXES = (

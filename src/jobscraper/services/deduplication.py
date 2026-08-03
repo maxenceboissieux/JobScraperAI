@@ -158,6 +158,10 @@ def _is_unknown_location(location: str) -> bool:
 def _location_evidence(raw_location: str) -> _LocationEvidence:
     """Parse raw clauses into place, non-city, unknown, or conflict evidence."""
 
+    trailing_france_place = _trailing_france_place_evidence(raw_location)
+    if trailing_france_place is not None:
+        return trailing_france_place
+
     clause_source = _REMOTE_CADENCE_SLASH.sub(r"\1 par \2", raw_location)
     clauses = [
         clause.strip()
@@ -220,6 +224,10 @@ def _location_clause_evidence(
     if _is_unknown_location(key):
         return _LocationEvidence("unknown")
 
+    prepositional_evidence = _standalone_preposition_evidence(key)
+    if prepositional_evidence is not None:
+        return prepositional_evidence
+
     tokens = key.split()
     if _has_remote_qualifier(tokens):
         return _remote_clause_evidence(raw_clause)
@@ -228,6 +236,42 @@ def _location_clause_evidence(
     ):
         return _LocationEvidence("remote_descriptor")
     return _evidence_for_key(key)
+
+
+def _trailing_france_place_evidence(
+    raw_location: str,
+) -> _LocationEvidence | None:
+    """Preserve the normalizer's exact, safely-delimited France qualifier."""
+
+    match = _SAFE_TRAILING_FRANCE_QUALIFIER.fullmatch(raw_location)
+    if match is None:
+        return None
+    raw_place = match.group("place")
+    place_clauses = [
+        clause.strip()
+        for clause in _LOCATION_CLAUSE_SEPARATOR.split(raw_place)
+        if clause.strip()
+    ]
+    if len(place_clauses) != 1:
+        return None
+    evidence = _bounded_location_evidence(normalize_location(raw_location))
+    return evidence if evidence.kind == "place" else None
+
+
+def _standalone_preposition_evidence(key: str) -> _LocationEvidence | None:
+    """Interpret only explicit ``à`` place and ``en`` scope clause grammar."""
+
+    preposition, separator, remainder = key.partition(" ")
+    if not separator:
+        return None
+    if preposition == "a":
+        return _bounded_location_evidence(remainder)
+    if preposition == "en":
+        evidence = _evidence_for_key(remainder)
+        if evidence.kind == "non_city":
+            return evidence
+        return _LocationEvidence("unknown")
+    return None
 
 
 def _remote_clause_evidence(raw_clause: str) -> _LocationEvidence:
@@ -384,6 +428,11 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
 _REMOTE_RESIDUAL_TOKENS = _REMOTE_DESCRIPTOR_TOKENS - {"a", "en"}
 _REMOTE_SCOPE_KEYS = frozenset({"europe", "international", "monde", "worldwide"})
 _LOCATION_CLAUSE_SEPARATOR = re.compile(r"\s*(?:[,/|;()]|\s[-–—]\s)\s*")
+_SAFE_TRAILING_FRANCE_QUALIFIER = re.compile(
+    r"^\s*(?P<place>.+?)(?:\s*,\s*france|\s*\(\s*france\s*\)|"
+    r"\s+[-–—]\s+france)\s*$",
+    re.IGNORECASE,
+)
 _REMOTE_CADENCE_SLASH = re.compile(r"\b(jours?)\s*/\s*(semaine)\b", re.IGNORECASE)
 _DEPARTMENT_CLAUSE = re.compile(r"(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])")
 _REMOTE_MODE_PATTERN = r"(?:remote|t[eé]l[eé]travail|hybrid|hybride|[aà]\s+distance)"
