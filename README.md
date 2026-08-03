@@ -17,8 +17,9 @@ Agrégateur d'offres d'emploi en France. Recherchez simultanément sur LinkedIn,
 git clone https://github.com/zeffut/jobscraper.git
 cd jobscraper
 
-# Utiliser Python 3.11 ou 3.12 et créer un environnement virtuel
-python3.12 -m venv .venv
+# Utiliser Python 3.11 ou 3.12 (remplacez python3 par python3.11 ou python3.12 si nécessaire)
+python3 --version
+python3 -m venv .venv
 source .venv/bin/activate  # Linux/macOS
 # ou .venv\Scripts\activate  # Windows
 
@@ -45,10 +46,9 @@ ADZUNA_APP_KEY=votre_app_key
 
 ### Free-Work
 
-Free-Work utilise ses pages publiques et ne requiert pas de clé API. Les variables suivantes permettent de l'activer ou d'ajuster le délai entre les requêtes :
+Free-Work utilise ses pages publiques et ne requiert pas de clé API. Choisissez cette source avec `-s freework` ; la variable suivante ajuste le délai entre les requêtes :
 
 ```env
-FREEWORK_ENABLED=true
 FREEWORK_DELAY=2.0
 ```
 
