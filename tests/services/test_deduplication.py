@@ -281,6 +281,14 @@ def test_city_with_remote_qualifier_vetoes_a_different_explicit_city() -> None:
         "Remote Paris",
         "Paris hybride 2 jours par semaine",
         "Hybride 2 jours par semaine Paris",
+        "Paris 100% télétravail",
+        "100% télétravail Paris",
+        "Paris 80% télétravail",
+        "80% télétravail Paris",
+        "Télétravail possible Paris",
+        "Paris télétravail flexible",
+        "Remote Europe Paris",
+        "Paris remote Europe",
     ],
 )
 def test_structural_and_bounded_remote_qualifiers_retain_paris_evidence(
@@ -330,8 +338,11 @@ def test_internal_place_hyphens_survive_remote_clause_parsing() -> None:
 @pytest.mark.parametrize(
     "location",
     [
-        "Paris remote Europe",
         "Paris / Lyon / télétravail",
+        "Paris remote Europe / télétravail",
+        "Paris flexible / remote",
+        "Remote / Europe",
+        "Télétravail / partiel",
         "Remote-sur-Mer",
     ],
 )
@@ -373,6 +384,30 @@ def test_near_remote_words_remain_explicit_place_labels(location: str) -> None:
     )
     assert classify_duplicate(left, different) == vetoed
     assert classify_duplicate(different, left) == vetoed
+
+
+def test_remote_qualified_countries_preserve_country_incompatibility() -> None:
+    """Fails if removing remote clauses erases incompatible country evidence."""
+
+    france = Job("Développeur Python", "Acme", "France / remote")
+    belgium = Job("Développeur Python Backend", "ACME", "Belgique / remote")
+
+    expected = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("lieux_incompatibles",)
+    )
+    assert classify_duplicate(france, belgium) == expected
+    assert classify_duplicate(belgium, france) == expected
+
+
+def test_remote_qualified_country_remains_non_explicit() -> None:
+    """Fails if a country plus a remote clause becomes confirmation evidence."""
+
+    left = Job("Développeur Python", "Acme", "France / remote")
+    right = Job("Développeur Python", "ACME", "France")
+
+    expected = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
 
 
 def test_different_country_labels_are_not_location_compatible() -> None:

@@ -186,16 +186,22 @@ def _location_evidence_key(raw_location: str) -> str:
 
 def _place_key_from_clauses(clauses: list[str]) -> str:
     place_keys: list[str] = []
+    country_keys: set[str] = set()
     for clause in clauses:
         key = normalize_location(clause)
         if not key or _DEPARTMENT_CLAUSE.fullmatch(key) is not None:
             continue
         if key in _COUNTRY_LOCATION_KEYS:
+            country_keys.add(key)
             continue
+        if not _is_safe_structural_place(key):
+            return ""
         place_keys.append(key)
-    if len(place_keys) != 1:
+    if len(place_keys) > 1 or len(country_keys) > 1:
         return ""
-    return place_keys[0]
+    if place_keys:
+        return place_keys[0]
+    return next(iter(country_keys), "")
 
 
 def _is_remote_descriptor(value: str) -> bool:
@@ -208,10 +214,20 @@ def _is_remote_descriptor(value: str) -> bool:
 def _is_safe_bounded_place(place: str) -> bool:
     return bool(place) and not (
         _has_remote_qualifier(place.split())
+        or _REMOTE_RESIDUAL_TOKENS.intersection(place.split())
         or _is_unknown_location(place)
         or place in _COUNTRY_LOCATION_KEYS
         or place in _REGION_LOCATION_KEYS
         or place in _REMOTE_SCOPE_KEYS
+    )
+
+
+def _is_safe_structural_place(place: str) -> bool:
+    tokens = place.split()
+    return bool(place) and not (
+        _has_remote_qualifier(tokens)
+        or _REMOTE_RESIDUAL_TOKENS.intersection(tokens)
+        or _is_unknown_location(place)
     )
 
 
@@ -279,6 +295,7 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
         "full",
         "hybrid",
         "hybride",
+        "international",
         "jour",
         "jours",
         "monde",
@@ -295,27 +312,30 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
         "worldwide",
     }
 )
+_REMOTE_RESIDUAL_TOKENS = _REMOTE_DESCRIPTOR_TOKENS - {"a", "en"}
 _REMOTE_SCOPE_KEYS = frozenset({"europe", "international", "monde", "worldwide"})
 _LOCATION_CLAUSE_SEPARATOR = re.compile(r"\s*(?:[/|;()]|\s[-–—]\s)\s*")
 _DEPARTMENT_CLAUSE = re.compile(r"(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])")
+_REMOTE_MODE_PATTERN = r"(?:remote|t[eé]l[eé]travail|hybrid|hybride|[aà]\s+distance)"
+_REMOTE_LEADING_MODIFIER_PATTERN = (
+    r"(?:en|full|100(?:\s*(?:%|pourcent))?|\d{1,2}\s*(?:%|pourcent))"
+)
+_REMOTE_TRAILING_MODIFIER_PATTERN = (
+    r"(?:partiel|partielle|possible|flexible|complet|complete|total|totale|"
+    r"europe|international|monde|worldwide|"
+    r"\d+\s+jours?(?:\s+par\s+semaine)?)"
+)
+_REMOTE_QUALIFIER_PATTERN = (
+    rf"(?:{_REMOTE_LEADING_MODIFIER_PATTERN}\s+)*"
+    rf"{_REMOTE_MODE_PATTERN}"
+    rf"(?:\s+{_REMOTE_TRAILING_MODIFIER_PATTERN})*"
+)
 _REMOTE_PREFIX = re.compile(
-    r"^(?:"
-    r"(?:en\s+)?(?:full\s+)?remote|"
-    r"(?:en\s+)?t[eé]l[eé]travail(?:\s+(?:partiel|partielle))?|"
-    r"(?:en\s+)?(?:hybrid|hybride)"
-    r"(?:\s+\d+\s+jours?(?:\s+par\s+semaine)?)?|"
-    r"[aà]\s+distance"
-    r")\s+(?P<place>.+)$",
+    rf"^(?:{_REMOTE_QUALIFIER_PATTERN})\s+(?P<place>.+)$",
     re.IGNORECASE,
 )
 _REMOTE_SUFFIX = re.compile(
-    r"^(?P<place>.+?)\s+(?:"
-    r"(?:en\s+)?(?:full\s+)?remote|"
-    r"(?:en\s+)?t[eé]l[eé]travail(?:\s+(?:partiel|partielle))?|"
-    r"(?:en\s+)?(?:hybrid|hybride)"
-    r"(?:\s+\d+\s+jours?(?:\s+par\s+semaine)?)?|"
-    r"[aà]\s+distance"
-    r")$",
+    rf"^(?P<place>.+?)\s+(?:{_REMOTE_QUALIFIER_PATTERN})$",
     re.IGNORECASE,
 )
 _COUNTRY_LOCATION_KEYS = frozenset(
