@@ -463,9 +463,9 @@ class FreeWorkScraper(BaseScraper):
             return None
         for city, coordinates in geocoding.FRENCH_CITIES.items():
             normalized_city = slugify(city)
-            if (
-                normalized_city in normalized_location
-                or normalized_location in normalized_city
+            if re.search(
+                rf"(?<![a-z0-9]){re.escape(normalized_city)}(?![a-z0-9])",
+                normalized_location,
             ):
                 return coordinates
         return None

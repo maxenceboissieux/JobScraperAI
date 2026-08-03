@@ -417,3 +417,38 @@ def test_unknown_city_radius_is_rejected_without_nominatim(monkeypatch) -> None:
 
     assert not scraper._matches_criteria(job, criteria)
     assert nominatim_calls == []
+
+
+@pytest.mark.parametrize(
+    ("job_location", "expected"),
+    [
+        ("Paris (75)", True),
+        ("Paris, Île-de-France", True),
+        ("Boulogne-Billancourt", True),
+        ("Parisien inconnu", False),
+        ("Paulette-sur-Mer", False),
+        ("Lyonnais imaginaire", False),
+    ],
+)
+def test_radius_locality_matching_requires_city_boundaries(
+    job_location, expected, monkeypatch
+) -> None:
+    nominatim_calls = []
+    monkeypatch.setattr(
+        geocoding,
+        "_nominatim_geocode",
+        lambda location: nominatim_calls.append(location),
+    )
+    scraper = FreeWorkScraper({"delay": 0})
+    job = JobOffer(
+        id="freework_boundary_radius",
+        source="freework",
+        url="https://www.free-work.com/fr/tech-it/job-mission/boundary-radius",
+        title="Développeur Python",
+        company="Exemple Conseil",
+        location=job_location,
+    )
+    criteria = SearchCriteria(location="Paris", radius_km=1000)
+
+    assert scraper._matches_criteria(job, criteria) is expected
+    assert nominatim_calls == []
