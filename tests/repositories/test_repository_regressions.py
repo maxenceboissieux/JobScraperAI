@@ -44,6 +44,7 @@ def offer(
     description: str | None = "Detailed description",
     salary_min: float | None = 60_000,
     salary_max: float | None = 75_000,
+    salary_currency: str = "EUR",
     posted_at: datetime | None = NOW,
     skills: list[str] | None = None,
     benefits: list[str] | None = None,
@@ -58,6 +59,7 @@ def offer(
         description=description,
         salary_min=salary_min,
         salary_max=salary_max,
+        salary_currency=salary_currency,
         posted_at=posted_at,
         skills=skills or [],
         benefits=benefits or [],
@@ -178,6 +180,100 @@ def test_merge_canonical_jobs_preserves_listings_searches_detail_and_relations(
     relation = session.scalar(select(DuplicateRelation))
     assert relation is not None
     assert {relation.left_job_id, relation.right_job_id} == {merged.pk, third.pk}
+
+
+def test_merge_uses_the_newest_atomic_salary_snapshot_without_currency_mix(
+    session: Session,
+) -> None:
+    """Fails if a merge keeps one currency's minimum with another's maximum."""
+    jobs = JobRepository(session)
+    usd_partial = jobs.upsert_listing(
+        offer(
+            "usd",
+            salary_min=110_000,
+            salary_max=None,
+            salary_currency="USD",
+        ),
+        seen_at=NOW,
+    )
+    eur_complete = jobs.upsert_listing(
+        offer(
+            "eur",
+            source="wttj",
+            salary_min=75_000,
+            salary_max=90_000,
+            salary_currency="EUR",
+        ),
+        seen_at=NOW,
+    )
+    usd_partial.details_fetched_at = NOW
+    eur_complete.details_fetched_at = NOW + timedelta(minutes=1)
+    session.flush()
+
+    merged = jobs.merge_canonical_jobs(usd_partial.id, eur_complete.id)
+
+    assert (merged.salary_min, merged.salary_max, merged.salary_currency) == (
+        75_000,
+        90_000,
+        "EUR",
+    )
+    assert merged.details_fetched_at == NOW + timedelta(minutes=1)
+
+
+def test_merge_unions_lists_and_uses_newer_scalar_cache_in_either_direction(
+    session: Session,
+) -> None:
+    """Fails if merge loses complementary list data or lets an older detail overwrite newer data."""
+    jobs = JobRepository(session)
+    older = jobs.upsert_listing(
+        offer(
+            "older",
+            description="Older cached description",
+            skills=["Python", "SQL"],
+            benefits=["Remote", "Training"],
+        ),
+        seen_at=NOW,
+    )
+    newer = jobs.upsert_listing(
+        offer(
+            "newer",
+            source="wttj",
+            description="Newer cached description",
+            skills=["SQL", "FastAPI"],
+            benefits=["Training", "Health"],
+        ),
+        seen_at=NOW,
+    )
+    older.details_fetched_at = NOW
+    newer.details_fetched_at = NOW + timedelta(minutes=2)
+    session.flush()
+
+    merged = jobs.merge_canonical_jobs(older.id, newer.id)
+
+    assert merged.description == "Newer cached description"
+    assert merged.skills == ["Python", "SQL", "FastAPI"]
+    assert merged.benefits == ["Remote", "Training", "Health"]
+    assert merged.details_fetched_at == NOW + timedelta(minutes=2)
+
+    newer_survivor = jobs.upsert_listing(
+        offer("survivor", description="Newest survivor detail"), seen_at=NOW
+    )
+    older_merge = jobs.upsert_listing(
+        offer(
+            "merged-old",
+            source="linkedin",
+            description="Older merge detail",
+        ),
+        seen_at=NOW,
+    )
+    newer_survivor.details_fetched_at = NOW + timedelta(minutes=4)
+    older_merge.details_fetched_at = NOW + timedelta(minutes=3)
+    session.flush()
+
+    kept = jobs.merge_canonical_jobs(newer_survivor.id, older_merge.id)
+
+    assert kept.description == "Newest survivor detail"
+    assert kept.details_fetched_at == NOW + timedelta(minutes=4)
 
 
 def test_duplicate_state_distinguishes_confirmed_possible_and_none(

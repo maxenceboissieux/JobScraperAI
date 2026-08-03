@@ -353,27 +353,55 @@ class JobRepository:
         )
 
     def _preserve_detail_cache(self, keep: CanonicalJob, merge: CanonicalJob) -> None:
-        copied_detail = False
-        if not self._meaningful_text(keep.description) and self._meaningful_text(
-            merge.description
+        merge_is_newer = self._is_newer_cache_snapshot(merge, keep)
+        if self._meaningful_text(merge.description) and (
+            not self._meaningful_text(keep.description) or merge_is_newer
         ):
             keep.description = merge.description
-            copied_detail = True
-        if keep.salary_min is None and merge.salary_min is not None:
+        if self._has_salary_snapshot(merge) and (
+            not self._has_salary_snapshot(keep) or merge_is_newer
+        ):
             keep.salary_min = merge.salary_min
-            copied_detail = True
-        if keep.salary_max is None and merge.salary_max is not None:
             keep.salary_max = merge.salary_max
             keep.salary_currency = merge.salary_currency
-            copied_detail = True
-        if not keep.skills and merge.skills:
-            keep.skills = list(merge.skills)
-            copied_detail = True
-        if not keep.benefits and merge.benefits:
-            keep.benefits = list(merge.benefits)
-            copied_detail = True
-        if copied_detail and merge.details_fetched_at is not None:
-            keep.details_fetched_at = merge.details_fetched_at
+        keep.skills = self._stable_union(keep.skills, merge.skills)
+        keep.benefits = self._stable_union(keep.benefits, merge.benefits)
+        cache_timestamps = [
+            timestamp
+            for timestamp in (keep.details_fetched_at, merge.details_fetched_at)
+            if timestamp is not None
+        ]
+        if cache_timestamps:
+            keep.details_fetched_at = max(cache_timestamps)
+
+    @staticmethod
+    def _has_salary_snapshot(job: CanonicalJob) -> bool:
+        return bool(job.salary_currency) and (
+            job.salary_min is not None or job.salary_max is not None
+        )
+
+    @staticmethod
+    def _is_newer_cache_snapshot(
+        candidate: CanonicalJob, current: CanonicalJob
+    ) -> bool:
+        """Choose newer cached detail; without timestamps retain the survivor."""
+
+        if candidate.details_fetched_at is None:
+            return False
+        if current.details_fetched_at is None:
+            return True
+        return candidate.details_fetched_at > current.details_fetched_at
+
+    @staticmethod
+    def _stable_union(existing: Sequence[str], incoming: Sequence[str]) -> list[str]:
+        seen: set[str] = set()
+        combined: list[str] = []
+        for value in (*existing, *incoming):
+            key = _normalise(value)
+            if key not in seen:
+                seen.add(key)
+                combined.append(value)
+        return combined
 
     def _merge_search_listings(self, keep_pk: int, merge_pk: int) -> None:
         kept_searches = set(
