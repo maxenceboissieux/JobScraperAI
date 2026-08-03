@@ -86,6 +86,10 @@ def upgrade() -> None:
         sa.Column("reasons", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "left_job_id < right_job_id",
+            name=op.f("ck_duplicate_relations_canonical_order"),
+        ),
         sa.ForeignKeyConstraint(
             ["left_job_id"],
             ["canonical_jobs.pk"],

@@ -1,9 +1,13 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from sqlalchemy import JSON, Integer, String, UniqueConstraint, inspect
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
 
 from jobscraper.db.base import Base
+from jobscraper.db.models import CanonicalJob, DuplicateRelation
 from jobscraper.db.session import create_engine_and_session
 
 
@@ -74,6 +78,73 @@ def test_required_unique_constraints_are_declared() -> None:
 
     assert ("source", "external_id") in listing_uniques
     assert ("left_job_id", "right_job_id") in relation_uniques
+
+
+def _database_with_two_jobs(
+    database_path: Path,
+) -> tuple[sessionmaker[Session], tuple[int, int]]:
+    engine, session_factory = create_engine_and_session(f"sqlite:///{database_path}")
+    Base.metadata.create_all(engine)
+    with session_factory.begin() as session:
+        left = CanonicalJob(
+            title="Développeur Python",
+            normalized_title="developpeur python",
+            company="Acme",
+            normalized_company="acme",
+            location="Paris",
+            normalized_location="paris",
+        )
+        right = CanonicalJob(
+            title="Backend Python",
+            normalized_title="backend python",
+            company="Acme",
+            normalized_company="acme",
+            location="Paris",
+            normalized_location="paris",
+        )
+        session.add_all((left, right))
+        session.flush()
+    return session_factory, (left.pk, right.pk)
+
+
+def test_duplicate_relation_accepts_an_ordered_distinct_pair(tmp_path: Path) -> None:
+    session_factory, (left_id, right_id) = _database_with_two_jobs(
+        tmp_path / "ordered.db"
+    )
+
+    with session_factory.begin() as session:
+        relation = DuplicateRelation(
+            left_job_id=left_id,
+            right_job_id=right_id,
+            kind="possible",
+            score=0.8,
+        )
+        session.add(relation)
+        session.flush()
+
+    assert relation.pk > 0
+
+
+@pytest.mark.parametrize("pair_kind", ["reverse", "self"])
+def test_duplicate_relation_rejects_noncanonical_pairs(
+    tmp_path: Path, pair_kind: str
+) -> None:
+    session_factory, (left_id, right_id) = _database_with_two_jobs(
+        tmp_path / f"{pair_kind}.db"
+    )
+    pair = (right_id, left_id) if pair_kind == "reverse" else (left_id, left_id)
+
+    with pytest.raises(IntegrityError):
+        with session_factory.begin() as session:
+            session.add(
+                DuplicateRelation(
+                    left_job_id=pair[0],
+                    right_job_id=pair[1],
+                    kind="possible",
+                    score=0.8,
+                )
+            )
+            session.flush()
 
 
 def test_filter_columns_are_indexed_and_timestamps_are_timezone_aware() -> None:

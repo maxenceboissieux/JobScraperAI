@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Float,
     ForeignKey,
     Integer,
@@ -171,6 +172,10 @@ class DuplicateRelation(Base):
 
     __tablename__ = "duplicate_relations"
     __table_args__ = (
+        CheckConstraint(
+            "left_job_id < right_job_id",
+            name="ck_duplicate_relations_canonical_order",
+        ),
         UniqueConstraint(
             "left_job_id",
             "right_job_id",
