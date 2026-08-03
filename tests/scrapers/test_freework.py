@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from jobscraper.models.job import ContractType, DatePosted, JobOffer, SearchCriteria
 from jobscraper.scrapers.freework import FreeWorkScraper
+from jobscraper.utils import geocoding
 
 FIXTURES_DIR = Path(__file__).parents[1] / "fixtures"
 
@@ -145,6 +146,40 @@ def test_search_stops_when_a_full_page_contains_only_seen_jobs(
     ]
 
 
+def test_search_stops_at_configured_max_pages_when_every_job_is_filtered(
+    monkeypatch,
+) -> None:
+    scraper = FreeWorkScraper({"delay": 0, "page_size": 2, "max_pages": 3})
+    requested_urls = []
+
+    def fetch_page(url: str) -> str:
+        requested_urls.append(url)
+        if len(requested_urls) > 3:
+            raise AssertionError("search exceeded the configured page ceiling")
+        first_id = len(requested_urls) * 10
+        return "".join(
+            f'<article data-job-id="{job_id}" data-contract="CDI"><h2>'
+            f'<a href="/fr/tech-it/job-mission/{job_id}">Job {job_id}</a>'
+            "</h2></article>"
+            for job_id in (first_id, first_id + 1)
+        )
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
+
+    jobs = list(
+        scraper.search(
+            SearchCriteria(contract_types=[ContractType.FREELANCE], max_results=1)
+        )
+    )
+
+    assert jobs == []
+    assert requested_urls == [
+        "https://www.free-work.com/fr/tech-it/jobs",
+        "https://www.free-work.com/fr/tech-it/jobs?page=2",
+        "https://www.free-work.com/fr/tech-it/jobs?page=3",
+    ]
+
+
 def test_search_prefers_plain_nuxt_jobs_over_other_representations(monkeypatch) -> None:
     html = """
     <script id="__NUXT_DATA__" type="application/json">
@@ -162,6 +197,48 @@ def test_search_prefers_plain_nuxt_jobs_over_other_representations(monkeypatch) 
     jobs = list(scraper.search(SearchCriteria(max_results=1)))
 
     assert [job.title for job in jobs] == ["Nuxt title"]
+
+
+@pytest.mark.parametrize(
+    ("html", "expected_title"),
+    [
+        (
+            """
+            <script id="__NUXT_DATA__" type="application/json">
+              {"filters": [{"id": 900, "title": "Not a job"}]}
+            </script>
+            <script type="application/ld+json">
+              {"@type": "JobPosting", "identifier": "901",
+               "title": "JSON-LD title", "url": "/fr/tech-it/job-mission/901"}
+            </script>
+            <article data-job-id="902"><h2>
+              <a href="/fr/tech-it/job-mission/902">HTML title</a>
+            </h2></article>
+            """,
+            "JSON-LD title",
+        ),
+        (
+            """
+            <script type="application/ld+json">
+              {"@type": "JobPosting", "identifier": "901", "title": "No URL"}
+            </script>
+            <article data-job-id="902"><h2>
+              <a href="/fr/tech-it/job-mission/902">HTML title</a>
+            </h2></article>
+            """,
+            "HTML title",
+        ),
+    ],
+)
+def test_search_falls_back_when_a_representation_has_no_valid_jobs(
+    html, expected_title, monkeypatch
+) -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+
+    jobs = list(scraper.search(SearchCriteria(max_results=1)))
+
+    assert [job.title for job in jobs] == [expected_title]
 
 
 def test_search_requests_page_two_after_a_default_full_page(monkeypatch) -> None:
@@ -257,8 +334,17 @@ def test_parse_posted_date_accepts_iso_and_rendered_french_dates() -> None:
     assert scraper._parse_posted_date("01/08/2026") == datetime(2026, 8, 1)
 
 
-def test_matches_criteria_applies_contract_date_and_radius_locally() -> None:
+def test_matches_criteria_applies_contract_date_and_radius_locally(monkeypatch) -> None:
     scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(
+        geocoding,
+        "geocode",
+        lambda location: {
+            "Paris": (48.8566, 2.3522),
+            "Paris, Île-de-France": (48.8566, 2.3522),
+            "Lyon": (45.7640, 4.8357),
+        }.get(location),
+    )
     fresh_job = JobOffer(
         id="freework_match",
         source="freework",
@@ -289,3 +375,33 @@ def test_matches_criteria_applies_contract_date_and_radius_locally() -> None:
         ),
         criteria,
     )
+
+
+@pytest.mark.parametrize(
+    ("job_location", "job_coordinates", "expected"),
+    [
+        ("Boulogne-Billancourt", (48.8352, 2.2410), True),
+        ("Versailles", (48.8014, 2.1301), False),
+        ("Lieu inconnu", None, False),
+    ],
+)
+def test_matches_criteria_uses_numeric_radius_between_geocoded_locations(
+    job_location, job_coordinates, expected, monkeypatch
+) -> None:
+    coordinates = {
+        "Paris": (48.8566, 2.3522),
+        job_location: job_coordinates,
+    }
+    monkeypatch.setattr(geocoding, "geocode", coordinates.get)
+    scraper = FreeWorkScraper({"delay": 0})
+    job = JobOffer(
+        id="freework_radius",
+        source="freework",
+        url="https://www.free-work.com/fr/tech-it/job-mission/radius",
+        title="Développeur Python",
+        company="Exemple Conseil",
+        location=job_location,
+    )
+    criteria = SearchCriteria(location="Paris", radius_km=15)
+
+    assert scraper._matches_criteria(job, criteria) is expected

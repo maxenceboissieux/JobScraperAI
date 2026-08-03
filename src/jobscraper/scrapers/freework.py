@@ -5,6 +5,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime, timedelta
+from math import atan2, cos, radians, sin, sqrt
 from typing import Any, Dict, Iterator, Optional
 from urllib.parse import urlencode, urljoin, urlparse
 
@@ -13,6 +14,7 @@ from loguru import logger
 
 from jobscraper.models.job import ContractType, DatePosted, JobOffer, SearchCriteria
 from jobscraper.scrapers.base import BaseScraper
+from jobscraper.utils import geocoding
 
 
 def slugify(value: str) -> str:
@@ -32,6 +34,7 @@ class FreeWorkScraper(BaseScraper):
         super().__init__(config)
         self.delay_between_requests = float(self.config.get("delay", 2))
         self.page_size = max(1, int(self.config.get("page_size", 16)))
+        self.max_pages = max(1, int(self.config.get("max_pages", 50)))
 
     def search(self, criteria: SearchCriteria) -> Iterator[JobOffer]:
         """Yield unique matching jobs from consecutive full result pages."""
@@ -39,7 +42,7 @@ class FreeWorkScraper(BaseScraper):
         yielded = 0
         seen_ids: set[str] = set()
 
-        while yielded < criteria.max_results:
+        while yielded < criteria.max_results and page <= self.max_pages:
             url = self._build_search_url(criteria, page=page)
             logger.debug(f"Récupération Free-Work page {page}: {url}")
             try:
@@ -48,21 +51,28 @@ class FreeWorkScraper(BaseScraper):
                 logger.error(f"Erreur lors de la recherche Free-Work: {exc}")
                 break
 
-            candidates = self._extract_nuxt_jobs(soup)
-            if not candidates:
-                candidates = self._extract_json_ld_jobs(soup)
-            if not candidates:
-                candidates = self._extract_job_cards(soup)
-            if not candidates:
+            page_jobs: list[JobOffer] = []
+            for extractor in (
+                self._extract_nuxt_jobs,
+                self._extract_json_ld_jobs,
+                self._extract_job_cards,
+            ):
+                page_jobs = [
+                    job
+                    for candidate in extractor(soup)
+                    if (job := self._parse_job_card(candidate)) is not None
+                ]
+                if page_jobs:
+                    break
+            if not page_jobs:
                 break
 
             new_ids_on_page = 0
-            for candidate in candidates:
+            for job in page_jobs:
                 if yielded >= criteria.max_results:
                     break
 
-                job = self._parse_job_card(candidate)
-                if job is None or job.id in seen_ids:
+                if job.id in seen_ids:
                     continue
                 seen_ids.add(job.id)
                 new_ids_on_page += 1
@@ -75,7 +85,7 @@ class FreeWorkScraper(BaseScraper):
 
             if (
                 yielded >= criteria.max_results
-                or len(candidates) < self.page_size
+                or len(page_jobs) < self.page_size
                 or new_ids_on_page == 0
             ):
                 break
@@ -421,9 +431,13 @@ class FreeWorkScraper(BaseScraper):
             criteria.radius_km
             and criteria.location
             and criteria.location.casefold() != "france"
-            and slugify(criteria.location) not in slugify(job.location)
         ):
-            return False
+            origin = geocoding.geocode(criteria.location)
+            destination = geocoding.geocode(job.location)
+            if origin is None or destination is None:
+                return False
+            if self._haversine_km(origin, destination) > criteria.radius_km:
+                return False
 
         maximum_age = {
             DatePosted.PAST_24H: timedelta(hours=24),
@@ -440,3 +454,17 @@ class FreeWorkScraper(BaseScraper):
                 return False
 
         return True
+
+    @staticmethod
+    def _haversine_km(
+        origin: tuple[float, float], destination: tuple[float, float]
+    ) -> float:
+        """Return great-circle distance in kilometres between two coordinates."""
+        origin_lat, origin_lon = (radians(value) for value in origin)
+        destination_lat, destination_lon = (radians(value) for value in destination)
+        latitude_delta = destination_lat - origin_lat
+        longitude_delta = destination_lon - origin_lon
+        haversine = sin(latitude_delta / 2) ** 2 + (
+            cos(origin_lat) * cos(destination_lat) * sin(longitude_delta / 2) ** 2
+        )
+        return 2 * 6371.0088 * atan2(sqrt(haversine), sqrt(1 - haversine))
