@@ -108,7 +108,7 @@ def test_live_shape_search_url_enriches_after_scraper_restart(
     assert requested_urls == [stored_url]
 
 
-def test_detail_jobposting_with_standalone_data_id_preserves_search_identity(
+def test_detail_jobposting_with_marked_offer_data_id_preserves_search_identity(
     load_fixture, monkeypatch
 ) -> None:
     search_scraper = FreeWorkScraper({"delay": 0})
@@ -123,7 +123,7 @@ def test_detail_jobposting_with_standalone_data_id_preserves_search_identity(
       {{"@type": "JobPosting", "title": "Développeur Python confirmé",
        "url": "{search_job.url}"}}
     </script>
-    <main data-id="659066">
+    <main data-testid="job-detail" data-id="659066">
       <h1>Développeur Python confirmé</h1>
       <div class="job-description">Construire des services Python.</div>
     </main>
@@ -135,6 +135,34 @@ def test_detail_jobposting_with_standalone_data_id_preserves_search_identity(
 
     assert detailed is not None
     assert detailed.id == search_job.id == "freework_659066"
+
+
+@pytest.mark.parametrize("container_tag", ["main", "article"])
+def test_stale_jobposting_does_not_trust_generic_container_data_id(
+    container_tag, monkeypatch
+) -> None:
+    canonical_url = (
+        "https://www.free-work.com/fr/tech-it/job-mission/python/offre-stale"
+    )
+    html = f"""
+    <script type="application/ld+json">
+      {{"@type": "JobPosting", "title": "Ancienne offre",
+       "url": "{canonical_url}"}}
+    </script>
+    <{container_tag} data-id="site-shell">
+      <h1>Erreur</h1>
+    </{container_tag}>
+    """
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+
+    detail = scraper.get_job_details(canonical_url)
+
+    assert detail is not None
+    assert detail.id == (
+        "freework_url_"
+        "618c3157c3b28ab2cc4eae59add16a7ad6b67f1d1ad2a469d3e0f22e00b02a2a"
+    )
 
 
 def test_generic_page_with_unrelated_data_id_is_not_an_offer(monkeypatch) -> None:
@@ -410,14 +438,17 @@ def test_get_job_details_rejects_a_headed_error_page(load_fixture, monkeypatch) 
     scraper = FreeWorkScraper({"delay": 0})
     soup = BeautifulSoup(load_fixture("freework/search.html"), "lxml")
     search_job = scraper._parse_job_card(scraper._extract_job_cards(soup)[0])
-    monkeypatch.setattr(
-        scraper,
-        "_fetch_page",
-        lambda _url: load_fixture("freework/not-found.html"),
-    )
+    requested_urls = []
+
+    def fetch_page(url: str) -> str:
+        requested_urls.append(url)
+        return load_fixture("freework/not-found.html")
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
 
     assert search_job is not None
-    assert scraper.get_job_details("12345") is None
+    assert scraper.get_job_details(str(search_job.url)) is None
+    assert requested_urls == [str(search_job.url)]
 
 
 def test_search_paginates_full_pages_stops_at_max_and_deduplicates(
