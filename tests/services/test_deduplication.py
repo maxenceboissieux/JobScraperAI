@@ -289,6 +289,13 @@ def test_city_with_remote_qualifier_vetoes_a_different_explicit_city() -> None:
         "Paris télétravail flexible",
         "Remote Europe Paris",
         "Paris remote Europe",
+        "Paris / Hybride 2 jours/semaine",
+        "Paris | Hybride 2 jours/semaine",
+        "Paris ; Hybride 2 jours/semaine",
+        "Paris (Hybride 2 jours/semaine)",
+        "Paris - Hybride 2 jours/semaine",
+        "Télétravail 80% Paris",
+        "Paris Télétravail 80%",
     ],
 )
 def test_structural_and_bounded_remote_qualifiers_retain_paris_evidence(
@@ -386,11 +393,21 @@ def test_near_remote_words_remain_explicit_place_labels(location: str) -> None:
     assert classify_duplicate(different, left) == vetoed
 
 
-def test_remote_qualified_countries_preserve_country_incompatibility() -> None:
+@pytest.mark.parametrize(
+    ("france_location", "belgium_location"),
+    [
+        ("France / remote", "Belgique / remote"),
+        ("Remote France", "Remote Belgique"),
+        ("France remote", "Belgique remote"),
+    ],
+)
+def test_remote_qualified_countries_preserve_country_incompatibility(
+    france_location: str, belgium_location: str
+) -> None:
     """Fails if removing remote clauses erases incompatible country evidence."""
 
-    france = Job("Développeur Python", "Acme", "France / remote")
-    belgium = Job("Développeur Python Backend", "ACME", "Belgique / remote")
+    france = Job("Développeur Python", "Acme", france_location)
+    belgium = Job("Développeur Python Backend", "ACME", belgium_location)
 
     expected = DuplicateDecision(
         "none", pytest.approx(0.8181818181818182), ("lieux_incompatibles",)
@@ -408,6 +425,19 @@ def test_remote_qualified_country_remains_non_explicit() -> None:
     expected = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
     assert classify_duplicate(left, right) == expected
     assert classify_duplicate(right, left) == expected
+
+
+def test_remote_qualified_regions_preserve_region_incompatibility() -> None:
+    """Fails if bounded remote parsing erases incompatible regional evidence."""
+
+    bretagne = Job("Développeur Python", "Acme", "Remote Bretagne")
+    normandie = Job("Développeur Python Backend", "ACME", "Remote Normandie")
+
+    expected = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("lieux_incompatibles",)
+    )
+    assert classify_duplicate(bretagne, normandie) == expected
+    assert classify_duplicate(normandie, bretagne) == expected
 
 
 def test_different_country_labels_are_not_location_compatible() -> None:

@@ -158,9 +158,10 @@ def _location_evidence_key(raw_location: str) -> str:
     if _is_remote_descriptor(raw_location):
         return ""
 
+    clause_source = _REMOTE_CADENCE_SLASH.sub(r"\1 par \2", raw_location)
     clauses = [
         clause.strip()
-        for clause in _LOCATION_CLAUSE_SEPARATOR.split(raw_location)
+        for clause in _LOCATION_CLAUSE_SEPARATOR.split(clause_source)
         if clause.strip()
     ]
     remote_clauses = [clause for clause in clauses if _is_remote_descriptor(clause)]
@@ -216,8 +217,6 @@ def _is_safe_bounded_place(place: str) -> bool:
         _has_remote_qualifier(place.split())
         or _REMOTE_RESIDUAL_TOKENS.intersection(place.split())
         or _is_unknown_location(place)
-        or place in _COUNTRY_LOCATION_KEYS
-        or place in _REGION_LOCATION_KEYS
         or place in _REMOTE_SCOPE_KEYS
     )
 
@@ -315,15 +314,15 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
 _REMOTE_RESIDUAL_TOKENS = _REMOTE_DESCRIPTOR_TOKENS - {"a", "en"}
 _REMOTE_SCOPE_KEYS = frozenset({"europe", "international", "monde", "worldwide"})
 _LOCATION_CLAUSE_SEPARATOR = re.compile(r"\s*(?:[/|;()]|\s[-–—]\s)\s*")
+_REMOTE_CADENCE_SLASH = re.compile(r"\b(jours?)\s*/\s*(semaine)\b", re.IGNORECASE)
 _DEPARTMENT_CLAUSE = re.compile(r"(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])")
 _REMOTE_MODE_PATTERN = r"(?:remote|t[eé]l[eé]travail|hybrid|hybride|[aà]\s+distance)"
-_REMOTE_LEADING_MODIFIER_PATTERN = (
-    r"(?:en|full|100(?:\s*(?:%|pourcent))?|\d{1,2}\s*(?:%|pourcent))"
-)
+_REMOTE_PERCENTAGE_PATTERN = r"(?:100(?:\s*(?:%|pourcent))?|\d{1,2}\s*(?:%|pourcent))"
+_REMOTE_LEADING_MODIFIER_PATTERN = rf"(?:en|full|{_REMOTE_PERCENTAGE_PATTERN})"
 _REMOTE_TRAILING_MODIFIER_PATTERN = (
     r"(?:partiel|partielle|possible|flexible|complet|complete|total|totale|"
     r"europe|international|monde|worldwide|"
-    r"\d+\s+jours?(?:\s+par\s+semaine)?)"
+    rf"{_REMOTE_PERCENTAGE_PATTERN}|\d+\s+jours?(?:\s+par\s+semaine)?)"
 )
 _REMOTE_QUALIFIER_PATTERN = (
     rf"(?:{_REMOTE_LEADING_MODIFIER_PATTERN}\s+)*"
