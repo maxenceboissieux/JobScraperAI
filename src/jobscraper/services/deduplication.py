@@ -244,10 +244,14 @@ def _trailing_france_evidence(raw_location: str) -> _LocationEvidence | None:
     match = _SAFE_TRAILING_FRANCE_QUALIFIER.fullmatch(raw_location)
     if match is None:
         return None
-    raw_clause = match.group("place").strip()
-    if not raw_clause or _LOCATION_CLAUSE_SEPARATOR.search(raw_clause) is not None:
+    raw_clause = match.group("place")
+    if (
+        not raw_clause.strip()
+        or _STRUCTURAL_DASH_BOUNDARY.search(raw_clause) is not None
+        or _LOCATION_CLAUSE_SEPARATOR.search(raw_clause) is not None
+    ):
         return None
-    evidence = _location_clause_evidence(raw_clause, has_remote_context=False)
+    evidence = _location_clause_evidence(raw_clause.strip(), has_remote_context=False)
     if evidence is None or evidence.kind == "remote_descriptor":
         return _LocationEvidence("unknown")
     return evidence
@@ -423,6 +427,7 @@ _REMOTE_DESCRIPTOR_TOKENS = frozenset(
 _REMOTE_RESIDUAL_TOKENS = _REMOTE_DESCRIPTOR_TOKENS - {"a", "en"}
 _REMOTE_SCOPE_KEYS = frozenset({"europe", "international", "monde", "worldwide"})
 _LOCATION_CLAUSE_SEPARATOR = re.compile(r"\s*(?:[,/|;()]|\s[-–—]\s)\s*")
+_STRUCTURAL_DASH_BOUNDARY = re.compile(r"(?:^\s*[-–—]|[-–—]\s*$)")
 _SAFE_TRAILING_FRANCE_QUALIFIER = re.compile(
     r"^\s*(?P<place>.+?)(?:\s*,\s*france|\s*\(\s*france\s*\)|"
     r"\s+[-–—]\s+france)\s*$",

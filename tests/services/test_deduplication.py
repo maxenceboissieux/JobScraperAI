@@ -884,6 +884,109 @@ def test_safe_france_qualifier_rejects_tunneled_structural_clauses(
 
 
 @pytest.mark.parametrize(
+    "boundary_location",
+    [
+        "Paris - , France",
+        "Paris - (France)",
+        "Paris - - France",
+        "Paris - – France",
+        "Paris - — France",
+        "Paris – , France",
+        "Paris – (France)",
+        "Paris – - France",
+        "Paris – – France",
+        "Paris – — France",
+        "Paris — , France",
+        "Paris — (France)",
+        "Paris — - France",
+        "Paris — – France",
+        "Paris — — France",
+        " - Paris, France",
+        " - Paris (France)",
+        " - Paris - France",
+        " - Paris – France",
+        " - Paris — France",
+        " – Paris, France",
+        " – Paris (France)",
+        " – Paris - France",
+        " – Paris – France",
+        " – Paris — France",
+        " — Paris, France",
+        " — Paris (France)",
+        " — Paris - France",
+        " — Paris – France",
+        " — Paris — France",
+    ],
+)
+def test_safe_france_qualifier_rejects_dash_at_captured_clause_boundary(
+    boundary_location: str,
+) -> None:
+    """Fails if trimming lets a structural dash evade captured-clause typing."""
+
+    malformed = Job("Développeur Python", "Acme", boundary_location)
+    paris = Job("Développeur Python", "ACME", "Paris")
+    expected = DuplicateDecision("none", 1.0, ("lieux_incompatibles",))
+
+    assert classify_duplicate(malformed, malformed) == expected
+    assert classify_duplicate(malformed, paris) == expected
+    assert classify_duplicate(paris, malformed) == expected
+
+
+@pytest.mark.parametrize(
+    "structural_location",
+    [
+        "Paris - Centre, France",
+        "Paris – Centre (France)",
+        "Paris — Centre - France",
+    ],
+)
+def test_safe_france_qualifier_rejects_internal_spaced_dash(
+    structural_location: str,
+) -> None:
+    """Fails if an internal spaced dash bypasses generic conflict reduction."""
+
+    malformed = Job("Développeur Python", "Acme", structural_location)
+    paris = Job("Développeur Python", "ACME", "Paris")
+    expected = DuplicateDecision("none", 1.0, ("lieux_incompatibles",))
+
+    assert classify_duplicate(malformed, malformed) == expected
+    assert classify_duplicate(malformed, paris) == expected
+    assert classify_duplicate(paris, malformed) == expected
+
+
+@pytest.mark.parametrize(
+    ("qualified_location", "plain_location"),
+    [
+        ("Châlons-en-Champagne, France", "Châlons-en-Champagne"),
+        ("Châlons-en-Champagne (France)", "Châlons-en-Champagne"),
+        ("Châlons-en-Champagne - France", "Châlons-en-Champagne"),
+        ("Châlons-en-Champagne – France", "Châlons-en-Champagne"),
+        ("Châlons-en-Champagne — France", "Châlons-en-Champagne"),
+        ("Saint-Denis, France", "Saint-Denis"),
+        ("Saint-Denis (France)", "Saint-Denis"),
+        ("Saint-Denis - France", "Saint-Denis"),
+        ("Saint-Denis – France", "Saint-Denis"),
+        ("Saint-Denis — France", "Saint-Denis"),
+    ],
+)
+def test_safe_france_qualifier_keeps_internal_unspaced_place_hyphens(
+    qualified_location: str, plain_location: str
+) -> None:
+    """Fails if the boundary guard rejects a legitimate hyphenated city."""
+
+    qualified = Job("Développeur Python", "Acme", qualified_location)
+    plain = Job("Développeur Python", "ACME", plain_location)
+    expected = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+
+    assert classify_duplicate(qualified, plain) == expected
+    assert classify_duplicate(plain, qualified) == expected
+
+
+@pytest.mark.parametrize(
     "conflicted_location",
     [
         "Paris / Belgique / remote",
