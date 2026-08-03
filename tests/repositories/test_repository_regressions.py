@@ -88,6 +88,11 @@ def test_sparse_listing_refresh_preserves_fetched_detail_cache(
     )
     detailed.details_fetched_at = NOW
     session.flush()
+    jobs.stamp_detail_groups(
+        detailed.id,
+        groups=["description", "salary", "skills", "benefits"],
+        fetched_at=NOW,
+    )
 
     refreshed = jobs.upsert_listing(
         offer(
@@ -108,6 +113,12 @@ def test_sparse_listing_refresh_preserves_fetched_detail_cache(
     assert refreshed.skills == ["Python", "SQL"]
     assert refreshed.benefits == ["Remote budget"]
     assert refreshed.details_fetched_at == NOW
+    assert refreshed.detail_provenance == {
+        "description": NOW.isoformat(),
+        "salary": NOW.isoformat(),
+        "skills": NOW.isoformat(),
+        "benefits": NOW.isoformat(),
+    }
     assert refreshed.title == "Python engineer (updated)"
 
 
@@ -274,6 +285,78 @@ def test_merge_unions_lists_and_uses_newer_scalar_cache_in_either_direction(
 
     assert kept.description == "Newest survivor detail"
     assert kept.details_fetched_at == NOW + timedelta(minutes=4)
+
+
+def test_chained_merge_uses_group_provenance_not_unrelated_global_cache_time(
+    session: Session,
+) -> None:
+    """Fails if a newer skills cache blocks newer salary or description snapshots."""
+    jobs = JobRepository(session)
+    survivor = jobs.upsert_listing(
+        offer(
+            "survivor-sparse",
+            description=None,
+            salary_min=None,
+            salary_max=None,
+            skills=[],
+            benefits=[],
+        ),
+        seen_at=NOW,
+    )
+    first_detail = jobs.upsert_listing(
+        offer(
+            "first-detail",
+            source="wttj",
+            description="Description at T2",
+            salary_min=70_000,
+            salary_max=90_000,
+            salary_currency="EUR",
+            skills=["Python"],
+        ),
+        seen_at=NOW,
+    )
+    later_salary = jobs.upsert_listing(
+        offer(
+            "later-salary",
+            source="linkedin",
+            description="Description at T3",
+            salary_min=120_000,
+            salary_max=None,
+            salary_currency="USD",
+        ),
+        seen_at=NOW,
+    )
+    jobs.stamp_detail_groups(
+        first_detail.id,
+        groups=["description", "salary"],
+        fetched_at=NOW + timedelta(minutes=2),
+    )
+    jobs.stamp_detail_groups(
+        first_detail.id,
+        groups=["skills"],
+        fetched_at=NOW + timedelta(minutes=4),
+    )
+    jobs.stamp_detail_groups(
+        later_salary.id,
+        groups=["description", "salary"],
+        fetched_at=NOW + timedelta(minutes=3),
+    )
+
+    after_first_merge = jobs.merge_canonical_jobs(survivor.id, first_detail.id)
+    merged = jobs.merge_canonical_jobs(after_first_merge.id, later_salary.id)
+
+    assert merged.description == "Description at T3"
+    assert (merged.salary_min, merged.salary_max, merged.salary_currency) == (
+        120_000,
+        None,
+        "USD",
+    )
+    assert merged.detail_provenance == {
+        "description": (NOW + timedelta(minutes=3)).isoformat(),
+        "salary": (NOW + timedelta(minutes=3)).isoformat(),
+        "skills": (NOW + timedelta(minutes=4)).isoformat(),
+    }
+    assert merged.details_fetched_at == NOW + timedelta(minutes=4)
 
 
 def test_duplicate_state_distinguishes_confirmed_possible_and_none(

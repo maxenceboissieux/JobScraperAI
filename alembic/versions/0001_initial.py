@@ -40,6 +40,7 @@ def upgrade() -> None:
         sa.Column("skills", sa.JSON(), nullable=False),
         sa.Column("benefits", sa.JSON(), nullable=False),
         sa.Column("details_fetched_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("detail_provenance", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("pk", name=op.f("pk_canonical_jobs")),

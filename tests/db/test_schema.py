@@ -66,6 +66,32 @@ def test_saved_search_list_filters_are_json_columns() -> None:
         assert isinstance(saved_searches.c[column_name].type, JSON)
 
 
+def test_canonical_detail_provenance_is_a_required_json_mapping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if ORM metadata and the initial migration drift on cache provenance."""
+    canonical_jobs = Base.metadata.tables["canonical_jobs"]
+    column = canonical_jobs.c.detail_provenance
+    assert isinstance(column.type, JSON)
+    assert not column.nullable
+
+    database_url = f"sqlite:///{tmp_path / 'provenance.db'}"
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    monkeypatch.setenv("JOBSCRAPER_DATABASE_URL", database_url)
+    command.upgrade(config, "head")
+    reflected = {
+        column["name"]: column
+        for column in inspect(create_engine_and_session(database_url)[0]).get_columns(
+            "canonical_jobs"
+        )
+    }
+
+    assert "detail_provenance" in reflected
+    assert isinstance(reflected["detail_provenance"]["type"], JSON)
+    assert not reflected["detail_provenance"]["nullable"]
+
+
 def test_required_unique_constraints_are_declared() -> None:
     listings = Base.metadata.tables["source_listings"]
     relations = Base.metadata.tables["duplicate_relations"]

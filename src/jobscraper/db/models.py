@@ -94,6 +94,9 @@ class CanonicalJob(Base):
     skills: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     benefits: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     details_fetched_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    detail_provenance: Mapped[dict[str, str]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False
     )

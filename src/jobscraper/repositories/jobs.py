@@ -1,7 +1,7 @@
 """Repository operations for canonical jobs and source listings."""
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -144,6 +144,35 @@ class JobRepository:
         self.session.delete(merge)
         self.session.flush()
         return keep
+
+    def stamp_detail_groups(
+        self,
+        job_id: str,
+        *,
+        groups: Sequence[str],
+        fetched_at: datetime,
+    ) -> CanonicalJob:
+        """Stamp detail-group provenance after Task 5 refreshes canonical fields.
+
+        The detail service updates the canonical detail fields, then calls this
+        method with each refreshed group from ``description``, ``salary``,
+        ``skills``, and ``benefits``. Sparse listing refreshes intentionally do
+        not call it, so their partial values cannot make cached provenance newer.
+        """
+
+        job = self.get_job(job_id)
+        if job is None:
+            raise LookupError("Canonical job does not exist")
+        provenance = self._detail_provenance(job)
+        for group in groups:
+            if group not in self._DETAIL_GROUPS:
+                raise ValueError("Unknown detail provenance group")
+            if self._has_detail_group(job, group):
+                provenance[group] = self._serialize_timestamp(fetched_at)
+        job.detail_provenance = provenance
+        self._recompute_details_fetched_at(job)
+        self.session.flush()
+        return job
 
     def get_job(self, job_id: str) -> CanonicalJob | None:
         """Return a canonical job by public UUID."""
@@ -353,26 +382,50 @@ class JobRepository:
         )
 
     def _preserve_detail_cache(self, keep: CanonicalJob, merge: CanonicalJob) -> None:
-        merge_is_newer = self._is_newer_cache_snapshot(merge, keep)
+        provenance = self._detail_provenance(keep)
+        keep_description_at = self._group_timestamp(keep, "description")
+        merge_description_at = self._group_timestamp(merge, "description")
         if self._meaningful_text(merge.description) and (
-            not self._meaningful_text(keep.description) or merge_is_newer
+            not self._meaningful_text(keep.description)
+            or self._is_newer_timestamp(merge_description_at, keep_description_at)
         ):
             keep.description = merge.description
+            keep_description_at = merge_description_at
+        self._set_group_timestamp(provenance, "description", keep_description_at)
+
+        keep_salary_at = self._group_timestamp(keep, "salary")
+        merge_salary_at = self._group_timestamp(merge, "salary")
         if self._has_salary_snapshot(merge) and (
-            not self._has_salary_snapshot(keep) or merge_is_newer
+            not self._has_salary_snapshot(keep)
+            or self._is_newer_timestamp(merge_salary_at, keep_salary_at)
         ):
             keep.salary_min = merge.salary_min
             keep.salary_max = merge.salary_max
             keep.salary_currency = merge.salary_currency
+            keep_salary_at = merge_salary_at
+        self._set_group_timestamp(provenance, "salary", keep_salary_at)
+
+        keep_skills_at = self._group_timestamp(keep, "skills")
+        merge_skills_at = self._group_timestamp(merge, "skills")
         keep.skills = self._stable_union(keep.skills, merge.skills)
+        self._set_group_timestamp(
+            provenance,
+            "skills",
+            self._newest_timestamp(keep_skills_at, merge_skills_at),
+        )
+
+        keep_benefits_at = self._group_timestamp(keep, "benefits")
+        merge_benefits_at = self._group_timestamp(merge, "benefits")
         keep.benefits = self._stable_union(keep.benefits, merge.benefits)
-        cache_timestamps = [
-            timestamp
-            for timestamp in (keep.details_fetched_at, merge.details_fetched_at)
-            if timestamp is not None
-        ]
-        if cache_timestamps:
-            keep.details_fetched_at = max(cache_timestamps)
+        self._set_group_timestamp(
+            provenance,
+            "benefits",
+            self._newest_timestamp(keep_benefits_at, merge_benefits_at),
+        )
+        keep.detail_provenance = provenance
+        self._recompute_details_fetched_at(
+            keep, extra_timestamps=(merge.details_fetched_at,)
+        )
 
     @staticmethod
     def _has_salary_snapshot(job: CanonicalJob) -> bool:
@@ -380,17 +433,94 @@ class JobRepository:
             job.salary_min is not None or job.salary_max is not None
         )
 
-    @staticmethod
-    def _is_newer_cache_snapshot(
-        candidate: CanonicalJob, current: CanonicalJob
-    ) -> bool:
-        """Choose newer cached detail; without timestamps retain the survivor."""
+    _DETAIL_GROUPS = ("description", "salary", "skills", "benefits")
 
-        if candidate.details_fetched_at is None:
+    @staticmethod
+    def _is_newer_timestamp(
+        candidate: datetime | None, current: datetime | None
+    ) -> bool:
+        if candidate is None:
             return False
-        if current.details_fetched_at is None:
+        if current is None:
             return True
-        return candidate.details_fetched_at > current.details_fetched_at
+        return candidate > current
+
+    @staticmethod
+    def _newest_timestamp(
+        left: datetime | None, right: datetime | None
+    ) -> datetime | None:
+        return max(
+            (timestamp for timestamp in (left, right) if timestamp is not None),
+            default=None,
+        )
+
+    @classmethod
+    def _has_detail_group(cls, job: CanonicalJob, group: str) -> bool:
+        if group == "description":
+            return cls._meaningful_text(job.description)
+        if group == "salary":
+            return cls._has_salary_snapshot(job)
+        if group == "skills":
+            return bool(job.skills)
+        if group == "benefits":
+            return bool(job.benefits)
+        raise ValueError("Unknown detail provenance group")
+
+    @staticmethod
+    def _detail_provenance(job: CanonicalJob) -> dict[str, str]:
+        return dict(job.detail_provenance or {})
+
+    @classmethod
+    def _group_timestamp(cls, job: CanonicalJob, group: str) -> datetime | None:
+        if not cls._has_detail_group(job, group):
+            return None
+        stored = cls._detail_provenance(job).get(group)
+        parsed = cls._deserialize_timestamp(stored)
+        return parsed or job.details_fetched_at
+
+    @staticmethod
+    def _serialize_timestamp(timestamp: datetime) -> str:
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        return timestamp.astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def _deserialize_timestamp(value: object | None) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            timestamp = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=timezone.utc)
+        return timestamp.astimezone(timezone.utc)
+
+    @classmethod
+    def _set_group_timestamp(
+        cls, provenance: dict[str, str], group: str, timestamp: datetime | None
+    ) -> None:
+        if timestamp is None:
+            provenance.pop(group, None)
+        else:
+            provenance[group] = cls._serialize_timestamp(timestamp)
+
+    @classmethod
+    def _recompute_details_fetched_at(
+        cls,
+        job: CanonicalJob,
+        *,
+        extra_timestamps: Sequence[datetime | None] = (),
+    ) -> None:
+        timestamps = [job.details_fetched_at, *extra_timestamps]
+        timestamps.extend(
+            cls._group_timestamp(job, group) for group in cls._DETAIL_GROUPS
+        )
+        meaningful_timestamps = [
+            timestamp for timestamp in timestamps if timestamp is not None
+        ]
+        if meaningful_timestamps:
+            job.details_fetched_at = max(meaningful_timestamps)
 
     @staticmethod
     def _stable_union(existing: Sequence[str], incoming: Sequence[str]) -> list[str]:
