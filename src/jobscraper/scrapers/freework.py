@@ -57,22 +57,31 @@ class FreeWorkScraper(BaseScraper):
                 soup = BeautifulSoup(self._fetch_page(url), "lxml")
             except Exception as exc:
                 logger.error(f"Erreur lors de la recherche Free-Work: {exc}")
+                if self.config.get("propagate_search_errors"):
+                    raise
                 break
 
             page_jobs: list[JobOffer] = []
+            raw_candidates_found = False
             for extractor in (
                 self._extract_nuxt_jobs,
                 self._extract_json_ld_jobs,
                 self._extract_job_cards,
             ):
+                candidates = extractor(soup)
+                raw_candidates_found = raw_candidates_found or bool(candidates)
                 page_jobs = [
                     job
-                    for candidate in extractor(soup)
+                    for candidate in candidates
                     if (job := self._parse_job_card(candidate)) is not None
                 ]
                 if page_jobs:
                     break
             if not page_jobs:
+                if raw_candidates_found and self.config.get("propagate_search_errors"):
+                    raise RuntimeError(
+                        "Les résultats Free-Work reçus sont inexploitables"
+                    )
                 break
 
             new_ids_on_page = 0

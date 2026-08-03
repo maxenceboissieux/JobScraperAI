@@ -53,8 +53,9 @@ class AdzunaScraper(BaseScraper):
             config: Configuration avec app_id et app_key
         """
         super().__init__(config)
-        self.app_id = config.get("app_id") if config else os.getenv("ADZUNA_APP_ID")
-        self.app_key = config.get("app_key") if config else os.getenv("ADZUNA_APP_KEY")
+        settings = config or {}
+        self.app_id = settings.get("app_id") or os.getenv("ADZUNA_APP_ID")
+        self.app_key = settings.get("app_key") or os.getenv("ADZUNA_APP_KEY")
         self.country = config.get("country", "fr") if config else "fr"
 
         if not self.app_id or not self.app_key:
@@ -76,6 +77,8 @@ class AdzunaScraper(BaseScraper):
         """
         if not self.app_id or not self.app_key:
             logger.error("Clés API Adzuna manquantes")
+            if self.config.get("propagate_search_errors"):
+                raise RuntimeError("Clés API Adzuna manquantes")
             return
 
         page = 1
@@ -99,18 +102,25 @@ class AdzunaScraper(BaseScraper):
                     break
 
                 new_jobs_on_page = 0
+                parsed_jobs_on_page = 0
                 for result in results:
                     if jobs_found >= max_results:
                         break
 
                     job = self._parse_result(result)
                     if job:
+                        parsed_jobs_on_page += 1
                         if job.id in seen_ids:
                             continue
                         seen_ids.add(job.id)
                         jobs_found += 1
                         new_jobs_on_page += 1
                         yield job
+
+                if parsed_jobs_on_page == 0 and self.config.get(
+                    "propagate_search_errors"
+                ):
+                    raise RuntimeError("Les résultats Adzuna reçus sont inexploitables")
 
                 if new_jobs_on_page == 0:
                     logger.info("Plus de nouvelles offres")
@@ -125,9 +135,13 @@ class AdzunaScraper(BaseScraper):
 
             except requests.RequestException as e:
                 logger.error(f"Erreur API Adzuna: {e}")
+                if self.config.get("propagate_search_errors"):
+                    raise
                 break
             except Exception as e:
                 logger.error(f"Erreur lors de la recherche: {e}")
+                if self.config.get("propagate_search_errors"):
+                    raise
                 break
 
         logger.info(f"Recherche terminée: {jobs_found} offres uniques trouvées")

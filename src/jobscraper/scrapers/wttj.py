@@ -113,17 +113,24 @@ class WTTJScraper(BaseScraper):
                     logger.info("Plus d'offres trouvées")
                     break
 
+                parsed_jobs_on_page = 0
                 for hit in results["hits"]:
                     if jobs_found >= max_results:
                         break
 
                     job = self._parse_hit(hit)
                     if job:
+                        parsed_jobs_on_page += 1
                         if job.id in seen_ids:
                             continue
                         seen_ids.add(job.id)
                         jobs_found += 1
                         yield job
+
+                if parsed_jobs_on_page == 0 and self.config.get(
+                    "propagate_search_errors"
+                ):
+                    raise RuntimeError("Les résultats WTTJ reçus sont inexploitables")
 
                 # Vérifier s'il y a plus de pages
                 total_pages = results.get("nbPages", 1)
@@ -134,6 +141,8 @@ class WTTJScraper(BaseScraper):
 
             except Exception as e:
                 logger.error(f"Erreur recherche WTTJ: {e}")
+                if self.config.get("propagate_search_errors"):
+                    raise
                 break
 
         logger.info(f"Recherche terminée: {jobs_found} offres uniques trouvées")

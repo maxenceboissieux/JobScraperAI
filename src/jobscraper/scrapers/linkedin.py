@@ -121,12 +121,14 @@ class LinkedInScraper(BaseScraper):
                     break
 
                 new_jobs_on_page = 0
+                parsed_jobs_on_page = 0
                 for card in job_cards:
                     if jobs_found >= max_results:
                         break
 
                     job = self._parse_job_card(card)
                     if job:
+                        parsed_jobs_on_page += 1
                         # Déduplication par ID
                         if job.id in seen_ids:
                             logger.debug(f"Doublon ignoré: {job.id}")
@@ -135,6 +137,13 @@ class LinkedInScraper(BaseScraper):
                         jobs_found += 1
                         new_jobs_on_page += 1
                         yield job
+
+                if parsed_jobs_on_page == 0 and self.config.get(
+                    "propagate_search_errors"
+                ):
+                    raise RuntimeError(
+                        "Les résultats LinkedIn reçus sont inexploitables"
+                    )
 
                 # Si aucune nouvelle offre sur cette page, on arrête
                 if new_jobs_on_page == 0:
@@ -146,6 +155,8 @@ class LinkedInScraper(BaseScraper):
 
             except Exception as e:
                 logger.error(f"Erreur lors de la recherche: {e}")
+                if self.config.get("propagate_search_errors"):
+                    raise
                 break
 
         logger.info(f"Recherche terminée: {jobs_found} offres uniques trouvées")
