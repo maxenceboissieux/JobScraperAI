@@ -6,9 +6,14 @@ from sqlalchemy import JSON, Integer, String, UniqueConstraint, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
+from alembic.config import Config
 from jobscraper.db.base import Base
 from jobscraper.db.models import CanonicalJob, DuplicateRelation
 from jobscraper.db.session import create_engine_and_session
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+EXPECTED_DUPLICATE_CHECK = "ck_duplicate_relations_canonical_order"
 
 
 def test_initial_schema_has_expected_tables(tmp_path: Path) -> None:
@@ -78,6 +83,32 @@ def test_required_unique_constraints_are_declared() -> None:
 
     assert ("source", "external_id") in listing_uniques
     assert ("left_job_id", "right_job_id") in relation_uniques
+
+
+def _reflected_duplicate_check_names(database_url: str) -> set[str]:
+    engine, _ = create_engine_and_session(database_url)
+    return {
+        str(constraint["name"])
+        for constraint in inspect(engine).get_check_constraints("duplicate_relations")
+    }
+
+
+def test_create_all_uses_canonical_duplicate_check_name(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'metadata.db'}"
+    engine, _ = create_engine_and_session(database_url)
+    Base.metadata.create_all(engine)
+
+    assert _reflected_duplicate_check_names(database_url) == {EXPECTED_DUPLICATE_CHECK}
+
+
+def test_alembic_upgrade_uses_canonical_duplicate_check_name(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'alembic.db'}"
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "head")
+
+    assert _reflected_duplicate_check_names(database_url) == {EXPECTED_DUPLICATE_CHECK}
 
 
 def _database_with_two_jobs(

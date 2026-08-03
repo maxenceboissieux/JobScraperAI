@@ -174,7 +174,7 @@ class DuplicateRelation(Base):
     __table_args__ = (
         CheckConstraint(
             "left_job_id < right_job_id",
-            name="ck_duplicate_relations_canonical_order",
+            name="canonical_order",
         ),
         UniqueConstraint(
             "left_job_id",
