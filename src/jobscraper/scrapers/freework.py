@@ -432,8 +432,8 @@ class FreeWorkScraper(BaseScraper):
             and criteria.location
             and criteria.location.casefold() != "france"
         ):
-            origin = geocoding.geocode(criteria.location)
-            destination = geocoding.geocode(job.location)
+            origin = self._resolve_local_coordinates(criteria.location)
+            destination = self._resolve_local_coordinates(job.location)
             if origin is None or destination is None:
                 return False
             if self._haversine_km(origin, destination) > criteria.radius_km:
@@ -454,6 +454,21 @@ class FreeWorkScraper(BaseScraper):
                 return False
 
         return True
+
+    @staticmethod
+    def _resolve_local_coordinates(location: str) -> Optional[tuple[float, float]]:
+        """Resolve a French city from the bounded local coordinate table."""
+        normalized_location = slugify(location)
+        if not normalized_location:
+            return None
+        for city, coordinates in geocoding.FRENCH_CITIES.items():
+            normalized_city = slugify(city)
+            if (
+                normalized_city in normalized_location
+                or normalized_location in normalized_city
+            ):
+                return coordinates
+        return None
 
     @staticmethod
     def _haversine_km(

@@ -338,12 +338,8 @@ def test_matches_criteria_applies_contract_date_and_radius_locally(monkeypatch) 
     scraper = FreeWorkScraper({"delay": 0})
     monkeypatch.setattr(
         geocoding,
-        "geocode",
-        lambda location: {
-            "Paris": (48.8566, 2.3522),
-            "Paris, Île-de-France": (48.8566, 2.3522),
-            "Lyon": (45.7640, 4.8357),
-        }.get(location),
+        "_nominatim_geocode",
+        lambda _location: pytest.fail("radius matching must remain network-free"),
     )
     fresh_job = JobOffer(
         id="freework_match",
@@ -377,22 +373,15 @@ def test_matches_criteria_applies_contract_date_and_radius_locally(monkeypatch) 
     )
 
 
-@pytest.mark.parametrize(
-    ("job_location", "job_coordinates", "expected"),
-    [
-        ("Boulogne-Billancourt", (48.8352, 2.2410), True),
-        ("Versailles", (48.8014, 2.1301), False),
-        ("Lieu inconnu", None, False),
-    ],
-)
-def test_matches_criteria_uses_numeric_radius_between_geocoded_locations(
-    job_location, job_coordinates, expected, monkeypatch
+def test_known_city_radius_uses_local_coordinates_without_nominatim(
+    monkeypatch,
 ) -> None:
-    coordinates = {
-        "Paris": (48.8566, 2.3522),
-        job_location: job_coordinates,
-    }
-    monkeypatch.setattr(geocoding, "geocode", coordinates.get)
+    nominatim_calls = []
+    monkeypatch.setattr(
+        geocoding,
+        "_nominatim_geocode",
+        lambda location: nominatim_calls.append(location),
+    )
     scraper = FreeWorkScraper({"delay": 0})
     job = JobOffer(
         id="freework_radius",
@@ -400,8 +389,31 @@ def test_matches_criteria_uses_numeric_radius_between_geocoded_locations(
         url="https://www.free-work.com/fr/tech-it/job-mission/radius",
         title="Développeur Python",
         company="Exemple Conseil",
-        location=job_location,
+        location="Boulogne-Billancourt",
     )
     criteria = SearchCriteria(location="Paris", radius_km=15)
 
-    assert scraper._matches_criteria(job, criteria) is expected
+    assert scraper._matches_criteria(job, criteria)
+    assert nominatim_calls == []
+
+
+def test_unknown_city_radius_is_rejected_without_nominatim(monkeypatch) -> None:
+    nominatim_calls = []
+    monkeypatch.setattr(
+        geocoding,
+        "_nominatim_geocode",
+        lambda location: nominatim_calls.append(location),
+    )
+    scraper = FreeWorkScraper({"delay": 0})
+    job = JobOffer(
+        id="freework_unknown_radius",
+        source="freework",
+        url="https://www.free-work.com/fr/tech-it/job-mission/unknown-radius",
+        title="Développeur Python",
+        company="Exemple Conseil",
+        location="Ville jamais référencée",
+    )
+    criteria = SearchCriteria(location="Paris", radius_km=15)
+
+    assert not scraper._matches_criteria(job, criteria)
+    assert nominatim_calls == []
