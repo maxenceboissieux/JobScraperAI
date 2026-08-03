@@ -1,0 +1,442 @@
+"""Scraper for public Free-Work job listings."""
+
+import json
+import re
+import time
+import unicodedata
+from datetime import datetime, timedelta
+from typing import Any, Dict, Iterator, Optional
+from urllib.parse import urlencode, urljoin, urlparse
+
+from bs4 import BeautifulSoup
+from loguru import logger
+
+from jobscraper.models.job import ContractType, DatePosted, JobOffer, SearchCriteria
+from jobscraper.scrapers.base import BaseScraper
+
+
+def slugify(value: str) -> str:
+    """Convert a location label to the slug format used by Free-Work."""
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", ascii_value.casefold()).strip("-")
+
+
+class FreeWorkScraper(BaseScraper):
+    """Search public Free-Work listings."""
+
+    name = "freework"
+    base_url = "https://www.free-work.com"
+
+    def __init__(self, config: Optional[Dict] = None):
+        super().__init__(config)
+        self.delay_between_requests = float(self.config.get("delay", 2))
+        self.page_size = max(1, int(self.config.get("page_size", 16)))
+
+    def search(self, criteria: SearchCriteria) -> Iterator[JobOffer]:
+        """Yield unique matching jobs from consecutive full result pages."""
+        page = 1
+        yielded = 0
+        seen_ids: set[str] = set()
+
+        while yielded < criteria.max_results:
+            url = self._build_search_url(criteria, page=page)
+            logger.debug(f"Récupération Free-Work page {page}: {url}")
+            try:
+                soup = BeautifulSoup(self._fetch_page(url), "lxml")
+            except Exception as exc:
+                logger.error(f"Erreur lors de la recherche Free-Work: {exc}")
+                break
+
+            candidates = self._extract_nuxt_jobs(soup)
+            if not candidates:
+                candidates = self._extract_json_ld_jobs(soup)
+            if not candidates:
+                candidates = self._extract_job_cards(soup)
+            if not candidates:
+                break
+
+            new_ids_on_page = 0
+            for candidate in candidates:
+                if yielded >= criteria.max_results:
+                    break
+
+                job = self._parse_job_card(candidate)
+                if job is None or job.id in seen_ids:
+                    continue
+                seen_ids.add(job.id)
+                new_ids_on_page += 1
+
+                if not self._matches_criteria(job, criteria):
+                    continue
+
+                yielded += 1
+                yield job
+
+            if (
+                yielded >= criteria.max_results
+                or len(candidates) < self.page_size
+                or new_ids_on_page == 0
+            ):
+                break
+
+            page += 1
+            if self.delay_between_requests > 0:
+                time.sleep(self.delay_between_requests)
+
+    def get_job_details(self, job_id: str) -> Optional[JobOffer]:
+        """Details are added in the next implementation task."""
+        return None
+
+    def _build_search_url(self, criteria: SearchCriteria, page: int = 1) -> str:
+        path = "/fr/tech-it/jobs"
+        if criteria.location and criteria.location.casefold() != "france":
+            path += f"/{slugify(criteria.location)}"
+
+        query = " ".join(filter(None, [criteria.title, *criteria.keywords]))
+        params = {"query": query} if query else {}
+        if page > 1:
+            params["page"] = str(page)
+
+        suffix = f"?{urlencode(params)}" if params else ""
+        return f"{self.base_url}{path}{suffix}"
+
+    def _extract_nuxt_jobs(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Extract concrete job dictionaries without decoding Nuxt devalue refs."""
+        script = soup.select_one("script#__NUXT_DATA__")
+        if script is None:
+            return []
+
+        try:
+            payload = json.loads(script.string or script.get_text())
+        except (TypeError, json.JSONDecodeError):
+            return []
+
+        jobs: list[dict[str, Any]] = []
+        fingerprints: set[tuple[str, str, str]] = set()
+
+        def walk(value: Any) -> None:
+            if isinstance(value, dict):
+                title = value.get("title") or value.get("name")
+                url = value.get("url") or value.get("href") or value.get("path")
+                identifier = (
+                    value.get("id") or value.get("jobId") or value.get("identifier")
+                )
+                if isinstance(title, str) and (
+                    isinstance(url, str) or isinstance(identifier, (str, int))
+                ):
+                    fingerprint = (str(identifier or ""), title, str(url or ""))
+                    if fingerprint not in fingerprints:
+                        fingerprints.add(fingerprint)
+                        jobs.append(value)
+                for child in value.values():
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+
+        walk(payload)
+        return jobs
+
+    def _extract_json_ld_jobs(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Extract JobPosting nodes from JSON-LD graphs and item lists."""
+        jobs: list[dict[str, Any]] = []
+        fingerprints: set[tuple[str, str]] = set()
+
+        def walk(value: Any) -> None:
+            if isinstance(value, dict):
+                node_type = value.get("@type")
+                types = node_type if isinstance(node_type, list) else [node_type]
+                if "JobPosting" in types:
+                    fingerprint = (
+                        str(value.get("identifier") or value.get("@id") or ""),
+                        str(value.get("url") or value.get("title") or ""),
+                    )
+                    if fingerprint not in fingerprints:
+                        fingerprints.add(fingerprint)
+                        jobs.append(value)
+                for child in value.values():
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+
+        for script in soup.select('script[type="application/ld+json"]'):
+            try:
+                walk(json.loads(script.string or script.get_text()))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return jobs
+
+    def _extract_job_cards(self, soup: BeautifulSoup) -> list[Any]:
+        """Extract rendered cards, deduplicated across desktop/mobile markup."""
+        cards = list(soup.select("[data-job-id]"))
+        if cards:
+            return cards
+
+        cards = []
+        seen_urls: set[str] = set()
+        for link in soup.select('a[href*="/job-mission/"]'):
+            href = str(link.get("href") or "")
+            if not href or href in seen_urls:
+                continue
+            seen_urls.add(href)
+
+            card = link.find_parent(["article", "li"])
+            if card is None:
+                card = link.find_parent("div", class_="mb-4")
+            if card is None:
+                card = link.find_parent(
+                    "div", class_=lambda classes: classes and "shadow" in classes
+                )
+            cards.append(card or link.parent)
+        return cards
+
+    def _parse_job_card(self, card: Any) -> Optional[JobOffer]:
+        """Normalize a structured job object or rendered HTML job card."""
+        try:
+            if isinstance(card, dict):
+                values = self._structured_values(card)
+            else:
+                values = self._html_values(card)
+
+            raw_url = str(values.get("url") or "").strip()
+            title = str(values.get("title") or "").strip()
+            if not raw_url or not title:
+                return None
+
+            url = urljoin(self.base_url, raw_url)
+            external_id = self._external_id(values.get("id"), url)
+            if not external_id:
+                return None
+
+            company = str(values.get("company") or "").strip() or "Non spécifié"
+            location = str(values.get("location") or "").strip() or "France"
+            contract_type = self._map_contract_type(values.get("contract"))
+            posted_at = self._parse_posted_date(values.get("posted_at"))
+
+            return JobOffer(
+                id=f"freework_{external_id}",
+                source=self.name,
+                url=url,
+                title=title,
+                company=company,
+                location=location,
+                contract_type=contract_type,
+                posted_at=posted_at,
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            logger.debug(f"Carte Free-Work ignorée: {exc}")
+            return None
+
+    def _structured_values(self, item: dict[str, Any]) -> dict[str, Any]:
+        identifier = item.get("id") or item.get("jobId") or item.get("identifier")
+        if isinstance(identifier, dict):
+            identifier = identifier.get("value") or identifier.get("@id")
+
+        company = (
+            item.get("company")
+            or item.get("hiringOrganization")
+            or item.get("organization")
+        )
+        if isinstance(company, dict):
+            company = company.get("name") or company.get("label")
+
+        location = item.get("location") or item.get("jobLocation")
+        if isinstance(location, list):
+            location = location[0] if location else None
+        location = self._structured_location(location)
+
+        return {
+            "id": identifier or item.get("@id"),
+            "url": item.get("url")
+            or item.get("href")
+            or item.get("path")
+            or item.get("@id"),
+            "title": item.get("title") or item.get("name"),
+            "company": company,
+            "location": location,
+            "contract": (
+                item.get("employmentType")
+                or item.get("contractType")
+                or item.get("contract")
+                or item.get("type")
+            ),
+            "posted_at": (
+                item.get("datePosted")
+                or item.get("publishedAt")
+                or item.get("publicationDate")
+                or item.get("createdAt")
+            ),
+        }
+
+    def _structured_location(self, location: Any) -> Optional[str]:
+        if isinstance(location, str):
+            return location
+        if not isinstance(location, dict):
+            return None
+
+        for key in ("label", "shortLabel", "name", "addressLocality"):
+            if location.get(key):
+                return str(location[key])
+
+        address = location.get("address")
+        if isinstance(address, str):
+            return address
+        if isinstance(address, dict):
+            parts = [
+                address.get("postalCode"),
+                address.get("addressLocality"),
+                address.get("addressRegion"),
+            ]
+            rendered = ", ".join(str(part) for part in parts if part)
+            return rendered or None
+        return None
+
+    def _html_values(self, card: Any) -> dict[str, Any]:
+        link = card.select_one('a[href*="/job-mission/"]')
+        title_element = link or card.select_one("h2, h3")
+        company_element = card.select_one(
+            "[data-company], .job-company, .company, .font-bold"
+        )
+        location_element = card.select_one("[data-location], .job-location, .location")
+        time_element = card.select_one("time")
+        contract_element = card.select_one(
+            "[data-contract], .job-contract, .contract, span.tag"
+        )
+
+        external_id = card.get("data-job-id") or card.get("data-id")
+        if not external_id:
+            tagged = card.select_one('[id^="tags-"]')
+            external_id = tagged.get("id") if tagged else None
+
+        location = (
+            location_element.get_text(" ", strip=True) if location_element else None
+        )
+        if not location:
+            location = self._labelled_value(card, "lieu")
+
+        contract = card.get("data-contract")
+        if not contract and contract_element is not None:
+            contract = contract_element.get_text(" ", strip=True)
+
+        posted_at = None
+        if time_element is not None:
+            posted_at = time_element.get("datetime") or time_element.get_text(
+                strip=True
+            )
+
+        return {
+            "id": external_id,
+            "url": link.get("href") if link else None,
+            "title": title_element.get_text(" ", strip=True) if title_element else None,
+            "company": (
+                company_element.get("data-company")
+                or company_element.get_text(" ", strip=True)
+                if company_element
+                else None
+            ),
+            "location": location,
+            "contract": contract,
+            "posted_at": posted_at,
+        }
+
+    @staticmethod
+    def _labelled_value(card: Any, label: str) -> Optional[str]:
+        for element in card.find_all(string=True):
+            if element.strip().casefold() != label.casefold():
+                continue
+            container = element.parent.parent if element.parent else None
+            if container is None:
+                continue
+            spans = container.find_all("span")
+            if spans:
+                value = spans[-1].get_text(" ", strip=True)
+                if value and value.casefold() != label.casefold():
+                    return value
+        return None
+
+    @staticmethod
+    def _external_id(value: Any, url: str) -> Optional[str]:
+        if value is not None:
+            rendered = str(value).strip()
+            tagged_match = re.fullmatch(r"tags-(.+)", rendered)
+            if tagged_match:
+                rendered = tagged_match.group(1)
+            if rendered.startswith("freework_"):
+                rendered = rendered.removeprefix("freework_")
+            if "/" not in rendered and rendered:
+                return rendered
+
+        path = urlparse(url).path.rstrip("/")
+        return path.rsplit("/", 1)[-1] if path else None
+
+    def _parse_posted_date(self, value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value
+        if not isinstance(value, str) or not value.strip():
+            return None
+
+        rendered = value.strip()
+        try:
+            return datetime.fromisoformat(rendered.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+
+        for date_format in ("%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(rendered, date_format)
+            except ValueError:
+                continue
+        return None
+
+    def _map_contract_type(self, value: Any) -> Optional[ContractType]:
+        if isinstance(value, list):
+            value = " ".join(str(part) for part in value)
+        if not value:
+            return None
+
+        normalized = slugify(str(value)).replace("-", " ")
+        mappings = (
+            (("freelance", "independant", "mission"), ContractType.FREELANCE),
+            (("alternance", "apprentissage"), ContractType.ALTERNANCE),
+            (("interim", "temporaire"), ContractType.INTERIM),
+            (("stage", "internship"), ContractType.STAGE),
+            (("cdd",), ContractType.CDD),
+            (("cdi",), ContractType.CDI),
+        )
+        for labels, contract_type in mappings:
+            if any(
+                re.search(rf"\b{re.escape(label)}\b", normalized) for label in labels
+            ):
+                return contract_type
+        return None
+
+    def _matches_criteria(self, job: JobOffer, criteria: SearchCriteria) -> bool:
+        """Apply criteria that the public Free-Work URL cannot represent."""
+        if criteria.contract_types and job.contract_type not in criteria.contract_types:
+            return False
+
+        if (
+            criteria.radius_km
+            and criteria.location
+            and criteria.location.casefold() != "france"
+            and slugify(criteria.location) not in slugify(job.location)
+        ):
+            return False
+
+        maximum_age = {
+            DatePosted.PAST_24H: timedelta(hours=24),
+            DatePosted.PAST_WEEK: timedelta(days=7),
+            DatePosted.PAST_MONTH: timedelta(days=30),
+        }.get(criteria.date_posted)
+        if maximum_age is None and criteria.posted_within_days:
+            maximum_age = timedelta(days=criteria.posted_within_days)
+        if maximum_age is not None:
+            if job.posted_at is None:
+                return False
+            now = datetime.now(job.posted_at.tzinfo)
+            if job.posted_at < now - maximum_age:
+                return False
+
+        return True
