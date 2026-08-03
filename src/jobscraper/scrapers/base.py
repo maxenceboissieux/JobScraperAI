@@ -2,12 +2,17 @@
 
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import AsyncIterator, Dict, Iterator, Optional, Self
+from typing import AsyncIterator, Callable, Dict, Iterator, Optional, Self
 
+import requests
 from loguru import logger
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import Retrying, stop_after_attempt, wait_exponential
 
 from jobscraper.models.job import JobOffer, SearchCriteria
+
+
+class IncompleteSearchError(RuntimeError):
+    """A strict search stopped without authoritative complete-scan evidence."""
 
 
 class BaseScraper(ABC):
@@ -27,6 +32,9 @@ class BaseScraper(ABC):
             config: Configuration optionnelle du scraper
         """
         self.config = config or {}
+        self.timeout = float(self.config.get("timeout", 30))
+        self.max_retries = max(1, int(self.config.get("max_retries", 3)))
+        self._search_complete = False
         self._session = None
         logger.info(f"Scraper {self.name} initialisé")
 
@@ -56,9 +64,6 @@ class BaseScraper(ABC):
         """
         pass
 
-    @retry(
-        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10)
-    )
     def _fetch_page(self, url: str) -> str:
         """
         Récupère le contenu d'une page avec retry automatique.
@@ -69,12 +74,55 @@ class BaseScraper(ABC):
         Returns:
             Contenu HTML de la page
         """
-        import requests
-
         headers = self._get_headers()
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
+        response = self._request_with_retry(
+            lambda: requests.get(url, headers=headers, timeout=self.timeout)
+        )
         return response.text
+
+    def _request_with_retry(
+        self, operation: Callable[[], requests.Response]
+    ) -> requests.Response:
+        """Run one configured HTTP operation and validate its response."""
+
+        response: requests.Response | None = None
+        for attempt in Retrying(
+            stop=stop_after_attempt(self.max_retries),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            reraise=True,
+        ):
+            with attempt:
+                response = operation()
+                response.raise_for_status()
+        if response is None:  # pragma: no cover - Retrying always attempts once.
+            raise RuntimeError("Aucune tentative HTTP exécutée")
+        return response
+
+    @property
+    def strict_search(self) -> bool:
+        """Whether incomplete scans must surface to the orchestration boundary."""
+
+        return bool(self.config.get("propagate_search_errors"))
+
+    @property
+    def search_complete(self) -> bool:
+        """Whether the current search reached an authoritative source boundary."""
+
+        return self._search_complete
+
+    def _begin_search(self) -> None:
+        self._search_complete = False
+
+    def _mark_search_complete(self) -> None:
+        self._search_complete = True
+
+    def _incomplete_search(self, message: str) -> None:
+        """Raise the shared strict-mode signal while preserving legacy behavior."""
+
+        self._search_complete = False
+        if self.strict_search:
+            raise IncompleteSearchError(message)
+        logger.warning(message)
 
     def _get_headers(self) -> dict:
         """

@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
-from jobscraper.config import Config
+from jobscraper.config import Config, FreeWorkConfig
 from jobscraper.db.base import Base
 from jobscraper.db.models import (
     CanonicalJob,
@@ -21,6 +21,7 @@ from jobscraper.db.models import (
 )
 from jobscraper.db.session import create_engine_and_session
 from jobscraper.models.job import JobOffer, SearchCriteria
+from jobscraper.repositories.jobs import JobRepository
 from jobscraper.repositories.saved_searches import SavedSearchRepository
 from jobscraper.repositories.sync_runs import SyncRunRepository
 from jobscraper.scrapers.adzuna import AdzunaScraper
@@ -559,6 +560,150 @@ def test_identical_same_source_external_ids_remain_distinct(session: Session) ->
     assert session.scalar(select(func.count(DuplicateRelation.pk))) == 0
 
 
+def test_cross_source_bridge_never_collapses_two_same_source_vacancies(
+    session: Session,
+) -> None:
+    """Fails if a bridge merge skips rechecking the survivor's expanded sources."""
+    saved_search = SavedSearchRepository(session).create(
+        name="Python",
+        criteria=SearchCriteria(keywords=["python"]),
+        sources=["linkedin", "freework"],
+    )
+    registry = FakeRegistry(
+        {
+            "linkedin": ScrapeScenario(
+                offers=[
+                    offer("li-1", source="linkedin"),
+                    offer("li-2", source="linkedin"),
+                ]
+            ),
+            "freework": ScrapeScenario(offers=[offer("fw-bridge")]),
+        }
+    )
+
+    SyncService(session, registry=registry).run(saved_search.id)
+
+    assert session.scalar(select(func.count(CanonicalJob.pk))) == 2
+    linkedin_counts = list(
+        session.execute(
+            select(SourceListing.canonical_job_id, func.count(SourceListing.pk))
+            .where(SourceListing.source == "linkedin")
+            .group_by(SourceListing.canonical_job_id)
+        )
+    )
+    assert sorted(count for _job_pk, count in linkedin_counts) == [1, 1]
+    for relation in session.scalars(select(DuplicateRelation)):
+        left_sources = set(
+            session.scalars(
+                select(SourceListing.source).where(
+                    SourceListing.canonical_job_id == relation.left_job_id
+                )
+            )
+        )
+        right_sources = set(
+            session.scalars(
+                select(SourceListing.source).where(
+                    SourceListing.canonical_job_id == relation.right_job_id
+                )
+            )
+        )
+        assert left_sources.isdisjoint(right_sources)
+
+
+def test_company_legal_suffix_reaches_duplicate_classifier(session: Session) -> None:
+    """Fails if persisted prefilter keys disagree with Task 3 company normalization."""
+    saved_search = SavedSearchRepository(session).create(
+        name="Python",
+        criteria=SearchCriteria(keywords=["python"]),
+        sources=["freework", "linkedin"],
+    )
+    registry = FakeRegistry(
+        {
+            "freework": ScrapeScenario(offers=[offer("fw", company="Acme SAS")]),
+            "linkedin": ScrapeScenario(
+                offers=[offer("li", source="linkedin", company="ACME")]
+            ),
+        }
+    )
+
+    SyncService(session, registry=registry).run(saved_search.id)
+
+    canonical = list(session.scalars(select(CanonicalJob)))
+    assert len(canonical) == 1
+    assert canonical[0].normalized_company == "acme"
+
+
+def test_independent_sessions_cannot_regress_last_seen_at(tmp_path: Path) -> None:
+    """Fails if a delayed older observation overwrites a newer committed sighting."""
+    engine, session_factory = create_engine_and_session(
+        f"sqlite:///{tmp_path / 'monotonic.db'}"
+    )
+    Base.metadata.create_all(engine)
+    with session_factory() as setup:
+        JobRepository(setup).upsert_listing(offer("race"), seen_at=NOW)
+        setup.commit()
+
+    with session_factory() as newer:
+        JobRepository(newer).upsert_listing(
+            offer("race", title="Newer"), seen_at=NOW.replace(hour=14)
+        )
+        newer.commit()
+    with session_factory() as delayed_older:
+        JobRepository(delayed_older).upsert_listing(
+            offer("race", title="Older"), seen_at=NOW.replace(hour=13)
+        )
+        delayed_older.commit()
+
+    with session_factory() as observer:
+        listing = observer.scalar(
+            select(SourceListing).where(SourceListing.external_id == "race")
+        )
+        assert listing is not None
+        assert listing.last_seen_at == NOW.replace(hour=14)
+
+
+def test_pending_run_claim_is_atomic_across_sessions(tmp_path: Path) -> None:
+    """Fails if two workers can both transition the same pending run to running."""
+    engine, session_factory = create_engine_and_session(
+        f"sqlite:///{tmp_path / 'claim.db'}"
+    )
+    Base.metadata.create_all(engine)
+    with session_factory() as setup:
+        saved_search = SavedSearchRepository(setup).create(
+            name="Python",
+            criteria=SearchCriteria(keywords=["python"]),
+            sources=["freework"],
+        )
+        run_id = (
+            SyncRunRepository(setup)
+            .start(saved_search.id, requested_sources=["freework"])
+            .id
+        )
+        setup.commit()
+
+    with session_factory() as first, session_factory() as second:
+        assert SyncRunRepository(first).claim_pending(run_id) is not None
+        first.commit()
+        assert SyncRunRepository(second).claim_pending(run_id) is None
+        second.rollback()
+
+
+def test_registry_rejects_disabled_source_and_passes_transport_controls() -> None:
+    """Fails if enabled, timeout, or retry configuration is ignored."""
+    disabled = ScraperRegistry(Config(freework=FreeWorkConfig(enabled=False)))
+    with pytest.raises(ValueError, match="désactivée"):
+        disabled.create("freework")
+
+    configured = ScraperRegistry(
+        Config(freework=FreeWorkConfig(timeout=17, max_retries=2))
+    ).create("freework")
+    try:
+        assert configured.config["timeout"] == 17
+        assert configured.config["max_retries"] == 2
+    finally:
+        configured.close()
+
+
 def test_offer_and_progress_commits_are_visible_from_another_session(
     tmp_path: Path,
 ) -> None:
@@ -590,6 +735,17 @@ def test_offer_and_progress_commits_are_visible_from_another_session(
         )
 
         service = SyncService(writer, registry=registry)
+        commit_snapshots: list[tuple[int, int]] = []
+
+        def observe_every_commit(_session: Session) -> None:
+            observer.expire_all()
+            job_count = observer.scalar(select(func.count(CanonicalJob.pk))) or 0
+            progress = observer.scalar(select(SourceSyncResult.offers_persisted)) or 0
+            observer.rollback()
+            if job_count:
+                commit_snapshots.append((job_count, progress))
+
+        event.listen(writer, "after_commit", observe_every_commit)
         run_id = service.create_run(saved_search.id)
         pending = SyncRunRepository(observer).get(run_id)
         assert pending is not None
@@ -602,8 +758,10 @@ def test_offer_and_progress_commits_are_visible_from_another_session(
         finished = SyncRunRepository(observer).get(run_id)
         assert finished is not None
         assert finished.status == "succeeded"
+        event.remove(writer, "after_commit", observe_every_commit)
 
     assert observations == [(1, 1)]
+    assert (1, 0) not in commit_snapshots
 
 
 def test_registry_builds_all_six_supported_scrapers() -> None:

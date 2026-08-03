@@ -51,6 +51,12 @@ class FreeWorkConfig(ScraperConfig):
     pass
 
 
+class AdzunaConfig(ScraperConfig):
+    """Configuration spécifique à Adzuna."""
+
+    pass
+
+
 class Config(BaseModel):
     """Configuration globale de l'application."""
 
@@ -63,6 +69,7 @@ class Config(BaseModel):
     francetravail: FranceTravailConfig = Field(default_factory=FranceTravailConfig)
     wttj: WTTJConfig = Field(default_factory=WTTJConfig)
     freework: FreeWorkConfig = Field(default_factory=FreeWorkConfig)
+    adzuna: AdzunaConfig = Field(default_factory=AdzunaConfig)
 
     # Configuration globale
     log_level: str = "INFO"
@@ -106,6 +113,10 @@ class Config(BaseModel):
             freework=FreeWorkConfig(
                 enabled=os.getenv("FREEWORK_ENABLED", "true").lower() == "true",
                 delay_between_requests=float(os.getenv("FREEWORK_DELAY", "2.0")),
+            ),
+            adzuna=AdzunaConfig(
+                enabled=os.getenv("ADZUNA_ENABLED", "true").lower() == "true",
+                delay_between_requests=float(os.getenv("ADZUNA_DELAY", "2.0")),
             ),
         )
 

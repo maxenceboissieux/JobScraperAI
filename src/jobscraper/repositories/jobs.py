@@ -16,6 +16,7 @@ from jobscraper.db.models import (
     SourceListing,
 )
 from jobscraper.models.job import JobOffer
+from jobscraper.services.normalization import normalize_company
 
 
 def _normalise(value: str) -> str:
@@ -302,7 +303,7 @@ class JobRepository:
             title=job_offer.title,
             normalized_title=_normalise(job_offer.title),
             company=job_offer.company,
-            normalized_company=_normalise(job_offer.company),
+            normalized_company=normalize_company(job_offer.company),
             location=job_offer.location,
             normalized_location=_normalise(job_offer.location),
         )
@@ -322,8 +323,14 @@ class JobRepository:
         listing.company = job_offer.company
         listing.location = job_offer.location
         listing.posted_at = job_offer.posted_at
-        listing.active = True
-        listing.last_seen_at = observed_at
+        self.session.execute(
+            update(SourceListing)
+            .where(
+                SourceListing.pk == listing.pk,
+                SourceListing.last_seen_at <= observed_at,
+            )
+            .values(active=True, last_seen_at=observed_at)
+        )
 
     def _apply_offer(
         self, job: CanonicalJob, job_offer: JobOffer, *, preserve_cached_details: bool
@@ -331,7 +338,7 @@ class JobRepository:
         job.title = job_offer.title
         job.normalized_title = _normalise(job_offer.title)
         job.company = job_offer.company
-        job.normalized_company = _normalise(job_offer.company)
+        job.normalized_company = normalize_company(job_offer.company)
         job.location = job_offer.location
         job.normalized_location = _normalise(job_offer.location)
         if self._meaningful_text(job_offer.description) or not preserve_cached_details:

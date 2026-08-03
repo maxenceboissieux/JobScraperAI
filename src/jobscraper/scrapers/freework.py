@@ -46,6 +46,7 @@ class FreeWorkScraper(BaseScraper):
 
     def search(self, criteria: SearchCriteria) -> Iterator[JobOffer]:
         """Yield unique matching jobs from consecutive full result pages."""
+        self._begin_search()
         page = 1
         yielded = 0
         seen_ids: set[str] = set()
@@ -63,6 +64,7 @@ class FreeWorkScraper(BaseScraper):
 
             page_jobs: list[JobOffer] = []
             raw_candidates_found = False
+            partial_parse = False
             for extractor in (
                 self._extract_nuxt_jobs,
                 self._extract_json_ld_jobs,
@@ -75,13 +77,16 @@ class FreeWorkScraper(BaseScraper):
                     for candidate in candidates
                     if (job := self._parse_job_card(candidate)) is not None
                 ]
+                partial_parse = bool(candidates) and len(page_jobs) != len(candidates)
                 if page_jobs:
                     break
             if not page_jobs:
-                if raw_candidates_found and self.config.get("propagate_search_errors"):
-                    raise RuntimeError(
+                if raw_candidates_found:
+                    self._incomplete_search(
                         "Les résultats Free-Work reçus sont inexploitables"
                     )
+                else:
+                    self._mark_search_complete()
                 break
 
             new_ids_on_page = 0
@@ -100,16 +105,29 @@ class FreeWorkScraper(BaseScraper):
                 yielded += 1
                 yield job
 
-            if (
-                yielded >= criteria.max_results
-                or len(page_jobs) < self.page_size
-                or new_ids_on_page == 0
-            ):
+            if partial_parse:
+                self._incomplete_search(
+                    "Une partie des résultats Free-Work est inexploitable"
+                )
+            if new_ids_on_page == 0:
+                self._incomplete_search(
+                    "La page Free-Work ne contient que des doublons"
+                )
+                break
+            if len(page_jobs) < self.page_size:
+                self._mark_search_complete()
+                break
+            if yielded >= criteria.max_results:
                 break
 
             page += 1
             if self.delay_between_requests > 0:
                 time.sleep(self.delay_between_requests)
+
+        if not self.search_complete and yielded < criteria.max_results:
+            self._incomplete_search(
+                "La limite interne de pages Free-Work a interrompu la recherche"
+            )
 
     def get_job_details(self, job_id: str) -> Optional[JobOffer]:
         """Fetch and normalize a public Free-Work detail page."""
@@ -397,6 +415,7 @@ class FreeWorkScraper(BaseScraper):
         try:
             payload = json.loads(script.string or script.get_text())
         except (TypeError, json.JSONDecodeError):
+            self._incomplete_search("Données structurées Nuxt Free-Work invalides")
             return []
 
         jobs: list[dict[str, Any]] = []
@@ -487,6 +506,7 @@ class FreeWorkScraper(BaseScraper):
             try:
                 walk(json.loads(script.string or script.get_text()))
             except (TypeError, json.JSONDecodeError):
+                self._incomplete_search("Données JSON-LD Free-Work invalides")
                 continue
         return jobs
 

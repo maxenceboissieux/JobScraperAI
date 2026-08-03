@@ -75,6 +75,7 @@ class WTTJScraper(BaseScraper):
         Yields:
             JobOffer: Les offres d'emploi trouvées
         """
+        self._begin_search()
         jobs_found = 0
         max_results = criteria.max_results
         page = 0
@@ -89,6 +90,11 @@ class WTTJScraper(BaseScraper):
             if coords:
                 radius_m = criteria.radius_km * 1000  # Convertir km en mètres
                 use_geo = True
+            else:
+                self._incomplete_search(
+                    f"Géocodage WTTJ impossible pour {criteria.location}; "
+                    "le rayon demandé ne peut pas être garanti"
+                )
 
         query = self._build_query(criteria, use_geo=use_geo)
         filters = self._build_filters(criteria)
@@ -109,12 +115,24 @@ class WTTJScraper(BaseScraper):
             try:
                 results = self._fetch_algolia(query, filters, page, coords, radius_m)
 
-                if not results.get("hits"):
+                hits = results.get("hits")
+                if not isinstance(hits, list):
+                    self._incomplete_search("Réponse WTTJ sans liste de résultats")
+                    break
+
+                total_hits = results.get("nbHits", 0)
+                if not hits:
+                    if isinstance(total_hits, int) and total_hits > 0:
+                        self._incomplete_search(
+                            "WTTJ annonce des résultats mais renvoie une page vide"
+                        )
+                    self._mark_search_complete()
                     logger.info("Plus d'offres trouvées")
                     break
 
                 parsed_jobs_on_page = 0
-                for hit in results["hits"]:
+                new_jobs_on_page = 0
+                for hit in hits:
                     if jobs_found >= max_results:
                         break
 
@@ -125,16 +143,24 @@ class WTTJScraper(BaseScraper):
                             continue
                         seen_ids.add(job.id)
                         jobs_found += 1
+                        new_jobs_on_page += 1
                         yield job
 
-                if parsed_jobs_on_page == 0 and self.config.get(
-                    "propagate_search_errors"
-                ):
-                    raise RuntimeError("Les résultats WTTJ reçus sont inexploitables")
+                if parsed_jobs_on_page != len(hits):
+                    self._incomplete_search(
+                        "Une partie des résultats WTTJ est inexploitable"
+                    )
+                if new_jobs_on_page == 0:
+                    self._incomplete_search("La page WTTJ ne contient que des doublons")
+                    break
 
                 # Vérifier s'il y a plus de pages
                 total_pages = results.get("nbPages", 1)
+                if not isinstance(total_pages, int) or total_pages < 1:
+                    self._incomplete_search("Pagination WTTJ invalide")
+                    break
                 if page >= total_pages - 1:
+                    self._mark_search_complete()
                     break
 
                 page += 1
@@ -198,8 +224,11 @@ class WTTJScraper(BaseScraper):
             payload["aroundLatLng"] = f"{coords[0]},{coords[1]}"
             payload["aroundRadius"] = radius_m
 
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
+        response = self._request_with_retry(
+            lambda: requests.post(
+                url, headers=headers, json=payload, timeout=self.timeout
+            )
+        )
         data: object = response.json()
         if not isinstance(data, dict):
             raise ValueError("Réponse Algolia invalide")

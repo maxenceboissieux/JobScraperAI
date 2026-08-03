@@ -2,8 +2,10 @@
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -67,6 +69,25 @@ class SyncRunRepository:
             run.started_at = started_at or utc_now()
         self.session.flush()
         return run
+
+    def claim_pending(
+        self, run_id: str, *, started_at: datetime | None = None
+    ) -> SyncRun | None:
+        """Atomically claim one pending run, returning ``None`` if already claimed."""
+
+        claimed_at = started_at or utc_now()
+        result = cast(
+            CursorResult[Any],
+            self.session.execute(
+                update(SyncRun)
+                .where(SyncRun.id == run_id, SyncRun.status == "pending")
+                .values(status="running", started_at=claimed_at)
+            ),
+        )
+        if result.rowcount != 1:
+            return None
+        self.session.flush()
+        return self.get(run_id)
 
     def record_source_result(
         self,

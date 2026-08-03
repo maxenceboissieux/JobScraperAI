@@ -7,7 +7,7 @@ from typing import Protocol
 
 import requests
 from loguru import logger
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from jobscraper.db.base import utc_now
@@ -30,6 +30,7 @@ from jobscraper.services.deduplication import (
     classify_duplicate,
     ordered_duplicate_pair_ids,
 )
+from jobscraper.services.normalization import normalize_company
 
 
 class ScraperFactory(Protocol):
@@ -118,17 +119,18 @@ class SyncService:
         run = self.sync_runs.get(run_id)
         if run is None:
             raise LookupError("Synchronization run does not exist")
-        if run.status != "pending":
+        claimed = self.sync_runs.claim_pending(run_id)
+        if claimed is None:
+            self.session.rollback()
             raise ValueError("Synchronization run is not pending")
-        saved_search = self.session.get(SavedSearch, run.saved_search_id)
+        saved_search = self.session.get(SavedSearch, claimed.saved_search_id)
         if saved_search is None:
             raise LookupError("Saved search does not exist")
-        requested_sources = list(run.requested_sources)
+        requested_sources = list(claimed.requested_sources)
         saved_search_pk = saved_search.pk
         saved_search_id = saved_search.id
         criteria = self._criteria(saved_search)
 
-        self.sync_runs.mark_running(run_id)
         self.session.commit()
 
         source_statuses = [
@@ -180,9 +182,12 @@ class SyncService:
                 saved_search_id=saved_search_id,
                 source=source,
                 criteria=criteria,
-                seen_at=source_started,
                 progress=progress,
             )
+            if scraper.strict_search and not scraper.search_complete:
+                scraper._incomplete_search(
+                    "La source n’a pas confirmé une recherche complète"
+                )
         except Exception as exc:
             source_error = exc
             self.session.rollback()
@@ -272,7 +277,6 @@ class SyncService:
         saved_search_id: str,
         source: str,
         criteria: SearchCriteria,
-        seen_at: datetime,
         progress: _SourceProgress,
     ) -> None:
         while progress.offers_seen < criteria.max_results:
@@ -285,24 +289,28 @@ class SyncService:
             if offer.source != source:
                 raise ValueError("A scraper returned an offer for another source")
             try:
+                observed_at = utc_now()
+                next_persisted = progress.offers_persisted + 1
+                # Issue a real outer UPDATE before repository SAVEPOINTs. This
+                # keeps SQLite's legacy transaction mode from publishing the
+                # listing before its matching progress counters.
+                self.sync_runs.record_source_result(
+                    run_id,
+                    source,
+                    status="running",
+                    offers_seen=progress.offers_seen,
+                    offers_persisted=next_persisted,
+                )
                 self._persist_offer(
                     offer=offer,
                     saved_search_id=saved_search_id,
-                    seen_at=seen_at,
+                    seen_at=observed_at,
                 )
                 self.session.commit()
             except Exception:
                 self.session.rollback()
                 raise
-            progress.offers_persisted += 1
-            self.sync_runs.record_source_result(
-                run_id,
-                source,
-                status="running",
-                offers_seen=progress.offers_seen,
-                offers_persisted=progress.offers_persisted,
-            )
-            self.session.commit()
+            progress.offers_persisted = next_persisted
 
     def _persist_offer(
         self, *, offer: JobOffer, saved_search_id: str, seen_at: datetime
@@ -312,6 +320,8 @@ class SyncService:
         self._refresh_duplicate_relations(job, source=offer.source)
 
     def _refresh_duplicate_relations(self, job: CanonicalJob, *, source: str) -> None:
+        normalized_company = normalize_company(job.company)
+        job.normalized_company = normalized_company
         jobs_already_on_source = select(SourceListing.canonical_job_id).where(
             SourceListing.source == source
         )
@@ -319,7 +329,7 @@ class SyncService:
             self.session.scalars(
                 select(CanonicalJob)
                 .where(
-                    CanonicalJob.normalized_company == job.normalized_company,
+                    CanonicalJob.normalized_company == normalized_company,
                     CanonicalJob.pk != job.pk,
                     CanonicalJob.pk.not_in(jobs_already_on_source),
                 )
@@ -348,6 +358,11 @@ class SyncService:
         for candidate in candidates:
             if candidate.pk == current.pk:
                 continue
+            if not self._job_sources(current.pk).isdisjoint(
+                self._job_sources(candidate.pk)
+            ):
+                self._remove_possible_relation(candidate.pk, current.pk)
+                continue
             decision = classify_duplicate(candidate, current)
             if decision.kind == "confirmed":
                 current = self.jobs.merge_canonical_jobs(candidate.id, current.id)
@@ -355,6 +370,15 @@ class SyncService:
                 self._record_possible_relation(candidate, current, decision)
             else:
                 self._remove_possible_relation(candidate.pk, current.pk)
+
+    def _job_sources(self, job_pk: int) -> set[str]:
+        return set(
+            self.session.scalars(
+                select(SourceListing.source).where(
+                    SourceListing.canonical_job_id == job_pk
+                )
+            )
+        )
 
     def _remove_possible_relation(self, left_job_pk: int, right_job_pk: int) -> None:
         left_pk, right_pk = ordered_duplicate_pair_ids(left_job_pk, right_job_pk)
@@ -442,7 +466,16 @@ class SyncService:
                 )
                 for other_search_pk in other_relevant_searches
             ):
-                listing.active = False
+                self.session.execute(
+                    update(SourceListing)
+                    .where(
+                        SourceListing.pk == listing.pk,
+                        SourceListing.active.is_(True),
+                        SourceListing.last_seen_at == listing.last_seen_at,
+                        SourceListing.last_seen_at < scan_started_at,
+                    )
+                    .values(active=False)
+                )
 
     def _has_verified_absence_after(
         self,

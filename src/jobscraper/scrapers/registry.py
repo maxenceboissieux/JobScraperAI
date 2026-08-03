@@ -34,6 +34,9 @@ class ScraperRegistry:
         scraper_type = self.scraper_types.get(source)
         if scraper_type is None:
             raise ValueError(f"Source de scraping inconnue: {source}")
+        configured = getattr(self.config, source, None)
+        if configured is not None and not configured.enabled:
+            raise ValueError(f"La source {source} est désactivée.")
         return scraper_type(self._source_config(source))
 
     def _source_config(self, source: str) -> dict[str, Any]:

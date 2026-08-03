@@ -75,10 +75,10 @@ class AdzunaScraper(BaseScraper):
         Yields:
             JobOffer: Les offres d'emploi trouvées
         """
+        self._begin_search()
         if not self.app_id or not self.app_key:
             logger.error("Clés API Adzuna manquantes")
-            if self.config.get("propagate_search_errors"):
-                raise RuntimeError("Clés API Adzuna manquantes")
+            self._incomplete_search("Clés API Adzuna manquantes")
             return
 
         page = 1
@@ -92,12 +92,25 @@ class AdzunaScraper(BaseScraper):
             logger.debug(f"Requête Adzuna: {url}")
 
             try:
-                response = requests.get(url, timeout=30)
-                response.raise_for_status()
+                response = self._request_with_retry(
+                    lambda: requests.get(url, timeout=self.timeout)
+                )
                 data = response.json()
+                if not isinstance(data, dict):
+                    self._incomplete_search("Réponse Adzuna invalide")
+                    break
 
                 results = data.get("results", [])
+                if not isinstance(results, list):
+                    self._incomplete_search("Réponse Adzuna sans liste de résultats")
+                    break
                 if not results:
+                    total_count = data.get("count", 0)
+                    if isinstance(total_count, (int, float)) and total_count > 0:
+                        self._incomplete_search(
+                            "Adzuna annonce des résultats mais renvoie une page vide"
+                        )
+                    self._mark_search_complete()
                     logger.info("Plus d'offres trouvées")
                     break
 
@@ -117,18 +130,25 @@ class AdzunaScraper(BaseScraper):
                         new_jobs_on_page += 1
                         yield job
 
-                if parsed_jobs_on_page == 0 and self.config.get(
-                    "propagate_search_errors"
-                ):
-                    raise RuntimeError("Les résultats Adzuna reçus sont inexploitables")
+                if parsed_jobs_on_page != len(results):
+                    self._incomplete_search(
+                        "Une partie des résultats Adzuna est inexploitable"
+                    )
 
                 if new_jobs_on_page == 0:
                     logger.info("Plus de nouvelles offres")
+                    self._incomplete_search(
+                        "La page Adzuna ne contient que des doublons"
+                    )
                     break
 
                 # Vérifier s'il y a plus de pages
                 total_count = data.get("count", 0)
+                if not isinstance(total_count, (int, float)) or total_count < 0:
+                    self._incomplete_search("Pagination Adzuna invalide")
+                    break
                 if page * results_per_page >= total_count:
+                    self._mark_search_complete()
                     break
 
                 page += 1

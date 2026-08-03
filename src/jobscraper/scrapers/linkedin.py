@@ -98,6 +98,7 @@ class LinkedInScraper(BaseScraper):
         Yields:
             JobOffer: Les offres d'emploi trouvées
         """
+        self._begin_search()
         url = self._build_search_url(criteria)
         logger.info(f"Recherche LinkedIn: {url}")
 
@@ -118,6 +119,7 @@ class LinkedInScraper(BaseScraper):
 
                 if not job_cards:
                     logger.info("Plus d'offres trouvées")
+                    self._mark_search_complete()
                     break
 
                 new_jobs_on_page = 0
@@ -138,16 +140,17 @@ class LinkedInScraper(BaseScraper):
                         new_jobs_on_page += 1
                         yield job
 
-                if parsed_jobs_on_page == 0 and self.config.get(
-                    "propagate_search_errors"
-                ):
-                    raise RuntimeError(
-                        "Les résultats LinkedIn reçus sont inexploitables"
+                if parsed_jobs_on_page != len(job_cards):
+                    self._incomplete_search(
+                        "Une partie des résultats LinkedIn est inexploitables"
                     )
 
                 # Si aucune nouvelle offre sur cette page, on arrête
                 if new_jobs_on_page == 0:
                     logger.info("Plus de nouvelles offres")
+                    self._incomplete_search(
+                        "La pagination LinkedIn ne contient que des doublons"
+                    )
                     break
 
                 start += 25  # LinkedIn pagine par 25
