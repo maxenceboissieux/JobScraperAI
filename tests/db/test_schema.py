@@ -101,14 +101,21 @@ def test_create_all_uses_canonical_duplicate_check_name(tmp_path: Path) -> None:
     assert _reflected_duplicate_check_names(database_url) == {EXPECTED_DUPLICATE_CHECK}
 
 
-def test_alembic_upgrade_uses_canonical_duplicate_check_name(tmp_path: Path) -> None:
+def test_alembic_upgrade_uses_canonical_duplicate_check_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     database_url = f"sqlite:///{tmp_path / 'alembic.db'}"
+    sentinel_path = tmp_path / "sentinel.db"
+    monkeypatch.setenv("JOBSCRAPER_DATABASE_URL", f"sqlite:///{sentinel_path}")
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
+    # env.py gives the environment precedence, so pin both inputs to the temp DB.
+    monkeypatch.setenv("JOBSCRAPER_DATABASE_URL", database_url)
 
     command.upgrade(config, "head")
 
     assert _reflected_duplicate_check_names(database_url) == {EXPECTED_DUPLICATE_CHECK}
+    assert not sentinel_path.exists()
 
 
 def _database_with_two_jobs(
