@@ -99,6 +99,9 @@ def test_get_job_details_parses_description_salary_and_skills(
 
 
 def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
+    canonical_url = (
+        "https://www.free-work.com/fr/tech-it/ingenieur-plateforme/" "job-mission/54321"
+    )
     html = """
     <main data-job-id="54321">
       <h1>Ingénieur plateforme</h1>
@@ -112,11 +115,15 @@ def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
     </main>
     """
     scraper = FreeWorkScraper({"delay": 0})
-    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+    requested_urls = []
 
-    job = scraper.get_job_details(
-        "https://www.free-work.com/fr/tech-it/ingenieur-plateforme/job-mission/54321"
-    )
+    def fetch_page(url: str) -> str:
+        requested_urls.append(url)
+        return html
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
+
+    job = scraper.get_job_details(canonical_url)
 
     assert job is not None
     assert job.title == "Ingénieur plateforme"
@@ -128,6 +135,7 @@ def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
     assert job.salary_max == 65000.0
     assert job.skills == ["FastAPI", "Docker"]
     assert job.benefits == ["RTT", "Mutuelle"]
+    assert requested_urls == [canonical_url]
 
 
 def test_get_job_details_does_not_fetch_an_uncached_bare_id(monkeypatch) -> None:
