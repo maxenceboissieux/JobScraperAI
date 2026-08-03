@@ -102,9 +102,9 @@ def geocode(location: str) -> Optional[Tuple[float, float]]:
             return coords
 
     # Utiliser Nominatim pour les autres villes
-    coords = _nominatim_geocode(location)
-    _geocode_cache[location_lower] = coords
-    return coords
+    resolved_coords = _nominatim_geocode(location)
+    _geocode_cache[location_lower] = resolved_coords
+    return resolved_coords
 
 
 def _nominatim_geocode(location: str) -> Optional[Tuple[float, float]]:
@@ -119,10 +119,10 @@ def _nominatim_geocode(location: str) -> Optional[Tuple[float, float]]:
     """
     try:
         url = "https://nominatim.openstreetmap.org/search"
-        params = {
+        params: Dict[str, str] = {
             "q": f"{location}, France",
             "format": "json",
-            "limit": 1,
+            "limit": "1",
             "countrycodes": "fr",
         }
         headers = {

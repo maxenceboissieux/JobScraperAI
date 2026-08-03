@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Iterator, Optional
 from urllib.parse import urlencode
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from loguru import logger
 
 from jobscraper.models.job import (
@@ -197,7 +197,7 @@ class FranceTravailScraper(BaseScraper):
 
         return f"{base}?{urlencode(params)}"
 
-    def _extract_job_cards(self, soup: BeautifulSoup) -> list:
+    def _extract_job_cards(self, soup: BeautifulSoup) -> list[Tag]:
         """
         Extrait les cartes d'offres d'emploi de la page.
 
@@ -221,7 +221,7 @@ class FranceTravailScraper(BaseScraper):
 
         return []
 
-    def _parse_job_card(self, card) -> Optional[JobOffer]:
+    def _parse_job_card(self, card: Tag) -> Optional[JobOffer]:
         """
         Parse une carte d'offre d'emploi France Travail.
 
@@ -238,7 +238,8 @@ class FranceTravailScraper(BaseScraper):
                 # Essayer d'extraire de l'URL
                 link = card.select_one("a[href*='/offres/recherche/detail/']")
                 if link:
-                    href = link.get("href", "")
+                    href_value = link.get("href", "")
+                    href = href_value if isinstance(href_value, str) else ""
                     match = re.search(r"/detail/([A-Z0-9]+)", href)
                     if match:
                         job_id = match.group(1)
@@ -275,7 +276,9 @@ class FranceTravailScraper(BaseScraper):
 
             # Description
             description_elem = card.select_one("p.description")
-            description = description_elem.get_text(strip=True) if description_elem else None
+            description = (
+                description_elem.get_text(strip=True) if description_elem else None
+            )
 
             # Type de contrat
             contract_type = None
@@ -332,11 +335,20 @@ class FranceTravailScraper(BaseScraper):
         text_lower = text.lower()
 
         patterns = [
-            (r"il y a (\d+)\s*minute", lambda m: now - timedelta(minutes=int(m.group(1)))),
+            (
+                r"il y a (\d+)\s*minute",
+                lambda m: now - timedelta(minutes=int(m.group(1))),
+            ),
             (r"il y a (\d+)\s*heure", lambda m: now - timedelta(hours=int(m.group(1)))),
             (r"il y a (\d+)\s*jour", lambda m: now - timedelta(days=int(m.group(1)))),
-            (r"il y a (\d+)\s*semaine", lambda m: now - timedelta(weeks=int(m.group(1)))),
-            (r"il y a (\d+)\s*mois", lambda m: now - timedelta(days=int(m.group(1)) * 30)),
+            (
+                r"il y a (\d+)\s*semaine",
+                lambda m: now - timedelta(weeks=int(m.group(1))),
+            ),
+            (
+                r"il y a (\d+)\s*mois",
+                lambda m: now - timedelta(days=int(m.group(1)) * 30),
+            ),
             (r"aujourd'hui", lambda m: now),
             (r"hier", lambda m: now - timedelta(days=1)),
         ]
@@ -369,7 +381,11 @@ class FranceTravailScraper(BaseScraper):
 
             # Entreprise
             company_elem = soup.select_one("[itemprop='hiringOrganization']")
-            company = company_elem.get_text(strip=True) if company_elem else "Entreprise confidentielle"
+            company = (
+                company_elem.get_text(strip=True)
+                if company_elem
+                else "Entreprise confidentielle"
+            )
 
             # Localisation
             location_elem = soup.select_one("[itemprop='jobLocation']")
@@ -377,7 +393,9 @@ class FranceTravailScraper(BaseScraper):
 
             # Description
             description_elem = soup.select_one("[itemprop='description'], .description")
-            description = description_elem.get_text(strip=True) if description_elem else None
+            description = (
+                description_elem.get_text(strip=True) if description_elem else None
+            )
 
             return JobOffer(
                 id=f"francetravail_{job_id}",

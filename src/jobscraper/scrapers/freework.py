@@ -30,13 +30,17 @@ class FreeWorkScraper(BaseScraper):
 
     name = "freework"
     base_url = "https://www.free-work.com"
+    _path_segment = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+    _offer_path_patterns = (
+        re.compile(rf"/fr/tech-it/job-mission/({_path_segment})/({_path_segment})/?"),
+        re.compile(rf"/fr/tech-it/({_path_segment})/job-mission/({_path_segment})/?"),
+    )
 
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config)
         self.delay_between_requests = float(self.config.get("delay", 2))
         self.page_size = max(1, int(self.config.get("page_size", 16)))
         self.max_pages = max(1, int(self.config.get("max_pages", 50)))
-        self._canonical_urls: dict[str, str] = {}
 
     def search(self, criteria: SearchCriteria) -> Iterator[JobOffer]:
         """Yield unique matching jobs from consecutive full result pages."""
@@ -112,32 +116,46 @@ class FreeWorkScraper(BaseScraper):
             return None
 
     def _resolve_detail_target(self, value: str) -> Optional[tuple[str, str]]:
-        """Resolve a cached ID or a canonical absolute Free-Work offer URL."""
+        """Resolve a durable canonical Free-Work offer URL."""
+        return self._canonical_offer_target(value)
+
+    @classmethod
+    def _canonical_offer_target(cls, value: str) -> Optional[tuple[str, str]]:
+        """Validate and normalize a current or evidenced legacy offer URL."""
         rendered = value.strip()
-        parsed = urlparse(rendered)
-        if parsed.scheme or parsed.netloc:
-            external_id = self._canonical_external_id(rendered)
-            if not external_id:
-                return None
-            self._canonical_urls[external_id] = rendered
-            return external_id, rendered
-
-        external_id = self._external_id(rendered, "")
-        if not external_id:
+        if not rendered:
             return None
-        url = self._canonical_urls.get(external_id)
-        return (external_id, url) if url else None
 
-    @staticmethod
-    def _canonical_external_id(value: str) -> Optional[str]:
-        parsed = urlparse(value)
-        if parsed.scheme != "https" or parsed.hostname not in {
-            "free-work.com",
-            "www.free-work.com",
-        }:
+        absolute = urljoin(cls.base_url, rendered)
+        parsed = urlparse(absolute)
+        try:
+            port = parsed.port
+        except ValueError:
             return None
-        match = re.fullmatch(r"/fr/tech-it/[^/]+/job-mission/([^/]+)/?", parsed.path)
-        return match.group(1) if match else None
+
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname not in {"free-work.com", "www.free-work.com"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or port not in (None, 443)
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+
+        for pattern in cls._offer_path_patterns:
+            match = pattern.fullmatch(parsed.path)
+            if match is not None:
+                path = parsed.path.rstrip("/")
+                return match.group(2), f"{cls.base_url}{path}"
+        return None
+
+    @classmethod
+    def _canonical_external_id(cls, value: str) -> Optional[str]:
+        target = cls._canonical_offer_target(value)
+        return target[0] if target else None
 
     def _parse_job_details(
         self, soup: BeautifulSoup, external_id: str, url: str
@@ -167,9 +185,12 @@ class FreeWorkScraper(BaseScraper):
             salary_min = prefer_structured("salary_min")
             salary_max = prefer_structured("salary_max")
             salary_currency = str(prefer_structured("salary_currency") or "EUR")
-            detail_url = urljoin(
-                self.base_url, str(prefer_structured("url") or url).strip()
-            )
+            detail_url = url
+            structured_url = prefer_structured("url")
+            if structured_url:
+                structured_target = self._canonical_offer_target(str(structured_url))
+                if structured_target is not None:
+                    detail_url = structured_target[1]
 
             return JobOffer(
                 id=f"freework_{external_id}",
@@ -443,8 +464,13 @@ class FreeWorkScraper(BaseScraper):
             if not raw_url or not title:
                 return None
 
-            url = urljoin(self.base_url, raw_url)
-            external_id = self._external_id(values.get("id"), url)
+            canonical_target = self._canonical_offer_target(raw_url)
+            if canonical_target is None:
+                return None
+            canonical_external_id, url = canonical_target
+            external_id = self._external_id(values.get("id"), "")
+            if not external_id:
+                external_id = canonical_external_id
             if not external_id:
                 return None
 
@@ -468,8 +494,6 @@ class FreeWorkScraper(BaseScraper):
                 remote=None,
                 posted_at=posted_at,
             )
-            if self._canonical_external_id(url) == external_id:
-                self._canonical_urls[external_id] = url
             return job
         except (AttributeError, TypeError, ValueError) as exc:
             logger.debug(f"Carte Free-Work ignorée: {exc}")
@@ -685,7 +709,7 @@ class FreeWorkScraper(BaseScraper):
             if criteria.date_posted is not None
             else None
         )
-        if maximum_age is None and criteria.posted_within_days:
+        if criteria.date_posted is None and criteria.posted_within_days:
             maximum_age = timedelta(days=criteria.posted_within_days)
         if maximum_age is not None:
             if job.posted_at is None:

@@ -1,7 +1,7 @@
 """Scraper pour Welcome to the Jungle (WTTJ)."""
 
 from datetime import datetime
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 import requests
 from loguru import logger
@@ -94,9 +94,13 @@ class WTTJScraper(BaseScraper):
         filters = self._build_filters(criteria)
 
         if use_geo:
-            logger.info(f"Recherche WTTJ: query='{query}', coords={coords}, rayon={criteria.radius_km}km")
+            logger.info(
+                f"Recherche WTTJ: query='{query}', coords={coords}, rayon={criteria.radius_km}km"
+            )
         elif criteria.location and criteria.radius_km:
-            logger.warning(f"Géocodage échoué pour {criteria.location}, recherche sans rayon")
+            logger.warning(
+                f"Géocodage échoué pour {criteria.location}, recherche sans rayon"
+            )
             logger.info(f"Recherche WTTJ: query='{query}'")
         else:
             logger.info(f"Recherche WTTJ: query='{query}'")
@@ -147,7 +151,7 @@ class WTTJScraper(BaseScraper):
         page: int,
         coords: Optional[Tuple[float, float]] = None,
         radius_m: Optional[int] = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Effectue une requête vers l'API Algolia.
 
@@ -171,7 +175,7 @@ class WTTJScraper(BaseScraper):
             "Origin": "https://www.welcometothejungle.com",
         }
 
-        payload = {
+        payload: dict[str, Any] = {
             "query": query,
             "hitsPerPage": self.hits_per_page,
             "page": page,
@@ -187,7 +191,10 @@ class WTTJScraper(BaseScraper):
 
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
-        return response.json()
+        data: object = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Réponse Algolia invalide")
+        return data
 
     def _build_query(self, criteria: SearchCriteria, use_geo: bool = False) -> str:
         """
@@ -279,7 +286,11 @@ class WTTJScraper(BaseScraper):
             # URL
             org_slug = organization.get("slug", "")
             job_slug = hit.get("slug", "")
-            url = f"{self.base_url}/fr/companies/{org_slug}/jobs/{job_slug}" if org_slug and job_slug else ""
+            url = (
+                f"{self.base_url}/fr/companies/{org_slug}/jobs/{job_slug}"
+                if org_slug and job_slug
+                else ""
+            )
 
             # Description
             description = hit.get("summary") or ""

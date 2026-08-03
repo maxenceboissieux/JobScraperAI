@@ -7,13 +7,12 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from jobscraper.models.job import ContractType, SearchCriteria
+from jobscraper.models.job import ContractType, DatePosted, SearchCriteria
 from jobscraper.scrapers.adzuna import AdzunaScraper
 from jobscraper.scrapers.francetravail import FranceTravailScraper
 from jobscraper.scrapers.hellowork import HelloWorkScraper
 from jobscraper.scrapers.linkedin import LinkedInScraper
 from jobscraper.scrapers.wttj import WTTJScraper
-
 
 FIXTURES_DIR = Path(__file__).parents[1] / "fixtures"
 
@@ -27,7 +26,14 @@ def load_fixture():
 
 
 @pytest.mark.parametrize(
-    ("scraper", "fixture", "expected_source", "expected_id", "expected_url", "expected_location"),
+    (
+        "scraper",
+        "fixture",
+        "expected_source",
+        "expected_id",
+        "expected_url",
+        "expected_location",
+    ),
     [
         (
             LinkedInScraper({"delay": 0}),
@@ -159,7 +165,9 @@ def test_adzuna_parses_representative_result(load_fixture) -> None:
         (FranceTravailScraper({"delay": 0}), "motsCles=Python+django+Paris"),
     ],
 )
-def test_html_scrapers_build_urls_from_search_criteria(scraper, expected_url_fragment) -> None:
+def test_html_scrapers_build_urls_from_search_criteria(
+    scraper, expected_url_fragment
+) -> None:
     criteria = SearchCriteria(
         title="Python",
         keywords=["django"],
@@ -171,3 +179,14 @@ def test_html_scrapers_build_urls_from_search_criteria(scraper, expected_url_fra
 
     assert url.startswith("https://")
     assert expected_url_fragment in url
+
+
+def test_linkedin_explicit_any_time_ignores_deprecated_posted_within_days() -> None:
+    criteria = SearchCriteria(
+        date_posted=DatePosted.ANY_TIME,
+        posted_within_days=1,
+    )
+
+    url = LinkedInScraper({"delay": 0})._build_search_url(criteria)
+
+    assert "f_TPR=" not in url

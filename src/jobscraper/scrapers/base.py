@@ -1,7 +1,8 @@
 """Classe de base abstraite pour tous les scrapers."""
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Dict, Iterator, Optional
+from types import TracebackType
+from typing import AsyncIterator, Dict, Iterator, Optional, Self
 
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -56,8 +57,7 @@ class BaseScraper(ABC):
         pass
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10)
     )
     def _fetch_page(self, url: str) -> str:
         """
@@ -95,15 +95,20 @@ class BaseScraper(ABC):
             "Connection": "keep-alive",
         }
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         """Context manager exit."""
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         """Ferme les ressources du scraper."""
         if self._session:
             self._session.close()
@@ -140,14 +145,19 @@ class AsyncBaseScraper(BaseScraper):
         """
         pass
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         """Async context manager exit."""
         await self.close_async()
 
-    async def close_async(self):
+    async def close_async(self) -> None:
         """Ferme les ressources de manière asynchrone."""
         self.close()

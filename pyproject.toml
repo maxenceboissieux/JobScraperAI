@@ -5,19 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jobscraper"
 version = "1.0.0"
-description = "Agrégateur d'offres d'emploi en France - LinkedIn, HelloWork, France Travail, WTTJ, Adzuna"
+description = "Agrégateur d'offres d'emploi en France - LinkedIn, HelloWork, France Travail, WTTJ, Adzuna, Free-Work"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11,<3.13"
 authors = [
     {name = "JobScraper Contributors"}
 ]
-keywords = ["scraping", "jobs", "linkedin", "france", "emploi", "hellowork", "wttj", "france-travail"]
+keywords = ["scraping", "jobs", "linkedin", "france", "emploi", "hellowork", "wttj", "france-travail", "free-work"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -63,7 +61,7 @@ where = ["src"]
 
 [tool.black]
 line-length = 88
-target-version = ['py39', 'py310', 'py311', 'py312']
+target-version = ['py311', 'py312']
 include = '\.pyi?$'
 
 [tool.isort]
@@ -71,7 +69,8 @@ profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

@@ -5,6 +5,7 @@ import jobscraper.cli as cli_module
 import jobscraper.scrapers as scrapers
 from jobscraper.cli import main
 from jobscraper.config import Config
+from jobscraper.models.job import JobOffer
 from jobscraper.scrapers.freework import FreeWorkScraper
 
 
@@ -29,7 +30,44 @@ def test_cli_accepts_freework_source(runner):
     result = runner.invoke(
         main, ["search", "-k", "python", "-s", "freework", "-n", "1"]
     )
+    assert result.exit_code == 0
     assert "Invalid value for '--source'" not in result.output
+
+
+def test_cli_details_enriches_freework_from_stored_url(runner, monkeypatch):
+    canonical_url = (
+        "https://www.free-work.com/fr/tech-it/job-mission/"
+        "developpeur-python/developpeur-python-exemple"
+    )
+    search_job = JobOffer(
+        id="freework_659066",
+        source="freework",
+        url=canonical_url,
+        title="Développeur Python",
+        company="Entreprise Exemple",
+        location="Paris",
+    )
+    detail_calls = []
+
+    monkeypatch.setattr(
+        FreeWorkScraper,
+        "search",
+        lambda _scraper, _criteria: iter((search_job,)),
+    )
+
+    def get_job_details(_scraper, job_url):
+        detail_calls.append(job_url)
+        return search_job.model_copy(update={"description": "Détails complets"})
+
+    monkeypatch.setattr(FreeWorkScraper, "get_job_details", get_job_details)
+
+    result = runner.invoke(
+        main,
+        ["search", "-k", "python", "-s", "freework", "-n", "1", "--details"],
+    )
+
+    assert result.exit_code == 0
+    assert detail_calls == [canonical_url]
 
 
 def test_cli_default_and_all_sources_include_freework(runner):

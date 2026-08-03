@@ -72,6 +72,41 @@ def test_parse_search_fixture(load_fixture) -> None:
     )
 
 
+def test_live_shape_search_url_enriches_after_scraper_restart(
+    load_fixture, monkeypatch
+) -> None:
+    search_scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(
+        search_scraper,
+        "_fetch_page",
+        lambda _url: load_fixture("freework/search-live.html"),
+    )
+
+    jobs = list(search_scraper.search(SearchCriteria(max_results=1)))
+
+    assert len(jobs) == 1
+    stored_url = str(jobs[0].url)
+    assert stored_url == (
+        "https://www.free-work.com/fr/tech-it/job-mission/"
+        "developpeur-python/developpeur-python-exemple"
+    )
+
+    detail_scraper = FreeWorkScraper({"delay": 0})
+    requested_urls = []
+
+    def fetch_detail(url: str) -> str:
+        requested_urls.append(url)
+        return load_fixture("freework/details-live.html")
+
+    monkeypatch.setattr(detail_scraper, "_fetch_page", fetch_detail)
+
+    detailed = detail_scraper.get_job_details(stored_url)
+
+    assert detailed is not None
+    assert detailed.title == "Développeur Python confirmé"
+    assert requested_urls == [stored_url]
+
+
 def test_get_job_details_parses_description_salary_and_skills(
     load_fixture, monkeypatch
 ):
@@ -87,7 +122,7 @@ def test_get_job_details_parses_description_salary_and_skills(
     monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
 
     assert search_job is not None
-    job = scraper.get_job_details("freework_12345")
+    job = scraper.get_job_details(str(search_job.url))
 
     assert job is not None
     assert "Python" in job.description
@@ -163,6 +198,103 @@ def test_get_job_details_does_not_fetch_a_slugless_absolute_url(monkeypatch) -> 
         )
         is None
     )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://www.free-work.com/fr/tech-it/job-mission/python/offre-python",
+        "https://evil.example/fr/tech-it/job-mission/python/offre-python",
+        "https://user:secret@www.free-work.com/fr/tech-it/job-mission/python/offre-python",
+        "https://www.free-work.com:444/fr/tech-it/job-mission/python/offre-python",
+        "https://www.free-work.com/fr/tech-it/jobs/python/offre-python",
+        (
+            "https://www.free-work.com/fr/tech-it/jobs"
+            "?next=/fr/tech-it/job-mission/python/offre-python"
+        ),
+        (
+            "https://www.free-work.com/fr/tech-it/job-mission/python/offre-python"
+            "?source=spoof"
+        ),
+    ],
+)
+def test_get_job_details_rejects_noncanonical_offer_urls(url, monkeypatch) -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: pytest.fail("une URL non canonique ne doit pas être appelée"),
+    )
+
+    assert scraper.get_job_details(url) is None
+
+
+def test_get_job_details_accepts_default_https_port_and_canonicalizes_url(
+    load_fixture, monkeypatch
+) -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+    requested_urls = []
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda url: requested_urls.append(url)
+        or load_fixture("freework/details-live.html"),
+    )
+
+    job = scraper.get_job_details(
+        "https://free-work.com:443/fr/tech-it/job-mission/"
+        "developpeur-python/developpeur-python-exemple/"
+    )
+
+    assert job is not None
+    assert requested_urls == [
+        "https://www.free-work.com/fr/tech-it/job-mission/"
+        "developpeur-python/developpeur-python-exemple"
+    ]
+
+
+def test_search_rejects_foreign_and_non_offer_structured_urls() -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+
+    assert (
+        scraper._parse_job_card(
+            {
+                "id": "foreign",
+                "title": "Offre étrangère",
+                "url": "https://example.com/fr/tech-it/job-mission/python/offre",
+            }
+        )
+        is None
+    )
+    assert (
+        scraper._parse_job_card(
+            {
+                "id": "listing",
+                "title": "Fausse offre",
+                "url": "https://www.free-work.com/fr/tech-it/jobs?job-mission=listing",
+            }
+        )
+        is None
+    )
+
+
+def test_detail_json_ld_cannot_override_with_foreign_url(monkeypatch) -> None:
+    canonical_url = (
+        "https://www.free-work.com/fr/tech-it/job-mission/python/offre-python"
+    )
+    html = """
+    <script type="application/ld+json">
+      {"@type": "JobPosting", "identifier": "123", "title": "Offre Python",
+       "url": "https://example.com/fr/tech-it/job-mission/python/offre-python"}
+    </script>
+    """
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+
+    job = scraper.get_job_details(canonical_url)
+
+    assert job is not None
+    assert str(job.url) == canonical_url
 
 
 def test_get_job_details_rejects_a_headed_error_page(load_fixture, monkeypatch) -> None:
@@ -266,7 +398,7 @@ def test_search_stops_at_configured_max_pages_when_every_job_is_filtered(
         first_id = len(requested_urls) * 10
         return "".join(
             f'<article data-job-id="{job_id}" data-contract="CDI"><h2>'
-            f'<a href="/fr/tech-it/job-mission/{job_id}">Job {job_id}</a>'
+            f'<a href="/fr/tech-it/job-mission/test/job-{job_id}">Job {job_id}</a>'
             "</h2></article>"
             for job_id in (first_id, first_id + 1)
         )
@@ -290,13 +422,13 @@ def test_search_stops_at_configured_max_pages_when_every_job_is_filtered(
 def test_search_prefers_plain_nuxt_jobs_over_other_representations(monkeypatch) -> None:
     html = """
     <script id="__NUXT_DATA__" type="application/json">
-      {"jobs": [{"id": 900, "title": "Nuxt title", "url": "/fr/tech-it/job-mission/900"}]}
+      {"jobs": [{"id": 900, "title": "Nuxt title", "url": "/fr/tech-it/job-mission/test/job-900"}]}
     </script>
     <script type="application/ld+json">
       {"@type": "JobPosting", "identifier": "901", "title": "JSON-LD title",
-       "url": "/fr/tech-it/job-mission/901"}
+       "url": "/fr/tech-it/job-mission/test/job-901"}
     </script>
-    <article data-job-id="902"><h2><a href="/fr/tech-it/job-mission/902">HTML title</a></h2></article>
+    <article data-job-id="902"><h2><a href="/fr/tech-it/job-mission/test/job-902">HTML title</a></h2></article>
     """
     scraper = FreeWorkScraper({"delay": 0, "page_size": 30})
     monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
@@ -316,10 +448,10 @@ def test_search_prefers_plain_nuxt_jobs_over_other_representations(monkeypatch) 
             </script>
             <script type="application/ld+json">
               {"@type": "JobPosting", "identifier": "901",
-               "title": "JSON-LD title", "url": "/fr/tech-it/job-mission/901"}
+               "title": "JSON-LD title", "url": "/fr/tech-it/job-mission/test/job-901"}
             </script>
             <article data-job-id="902"><h2>
-              <a href="/fr/tech-it/job-mission/902">HTML title</a>
+              <a href="/fr/tech-it/job-mission/test/job-902">HTML title</a>
             </h2></article>
             """,
             "JSON-LD title",
@@ -330,7 +462,7 @@ def test_search_prefers_plain_nuxt_jobs_over_other_representations(monkeypatch) 
               {"@type": "JobPosting", "identifier": "901", "title": "No URL"}
             </script>
             <article data-job-id="902"><h2>
-              <a href="/fr/tech-it/job-mission/902">HTML title</a>
+              <a href="/fr/tech-it/job-mission/test/job-902">HTML title</a>
             </h2></article>
             """,
             "HTML title",
@@ -351,7 +483,7 @@ def test_search_falls_back_when_a_representation_has_no_valid_jobs(
 def test_search_requests_page_two_after_a_default_full_page(monkeypatch) -> None:
     first_page = "".join(
         f'<article data-job-id="{job_id}"><h2>'
-        f'<a href="/fr/tech-it/job-mission/{job_id}">Job {job_id}</a>'
+        f'<a href="/fr/tech-it/job-mission/test/job-{job_id}">Job {job_id}</a>'
         "</h2></article>"
         for job_id in range(1, 17)
     )
@@ -392,7 +524,7 @@ def test_json_ld_extractor_finds_nested_job_and_uses_field_fallbacks() -> None:
         <script type="application/ld+json">
           {"@graph": [{"@type": "WebPage", "name": "Jobs"},
             {"@type": "JobPosting", "identifier": {"value": "777"},
-             "title": "Architecte Cloud", "url": "/fr/tech-it/job-mission/777",
+             "title": "Architecte Cloud", "url": "/fr/tech-it/job-mission/test/job-777",
              "employmentType": "CDI", "datePosted": "2026-08-02"}]}
         </script>
         """,
@@ -451,7 +583,7 @@ def test_matches_criteria_applies_contract_date_and_radius_locally(monkeypatch) 
     fresh_job = JobOffer(
         id="freework_match",
         source="freework",
-        url="https://www.free-work.com/fr/tech-it/job-mission/match",
+        url="https://www.free-work.com/fr/tech-it/job-mission/test/match",
         title="Développeur Python",
         company="Exemple Conseil",
         location="Paris, Île-de-France",
@@ -480,6 +612,27 @@ def test_matches_criteria_applies_contract_date_and_radius_locally(monkeypatch) 
     )
 
 
+def test_explicit_any_time_ignores_deprecated_posted_within_days() -> None:
+    old_job = JobOffer(
+        id="freework_old",
+        source="freework",
+        url=(
+            "https://www.free-work.com/fr/tech-it/job-mission/"
+            "developpeur-python/offre-ancienne"
+        ),
+        title="Développeur Python",
+        company="Exemple Conseil",
+        location="Paris",
+        posted_at=datetime.now(timezone.utc) - timedelta(days=365),
+    )
+    criteria = SearchCriteria(
+        date_posted=DatePosted.ANY_TIME,
+        posted_within_days=1,
+    )
+
+    assert FreeWorkScraper({"delay": 0})._matches_criteria(old_job, criteria)
+
+
 def test_known_city_radius_uses_local_coordinates_without_nominatim(
     monkeypatch,
 ) -> None:
@@ -493,7 +646,7 @@ def test_known_city_radius_uses_local_coordinates_without_nominatim(
     job = JobOffer(
         id="freework_radius",
         source="freework",
-        url="https://www.free-work.com/fr/tech-it/job-mission/radius",
+        url="https://www.free-work.com/fr/tech-it/job-mission/test/radius",
         title="Développeur Python",
         company="Exemple Conseil",
         location="Boulogne-Billancourt",
@@ -515,7 +668,7 @@ def test_unknown_city_radius_is_rejected_without_nominatim(monkeypatch) -> None:
     job = JobOffer(
         id="freework_unknown_radius",
         source="freework",
-        url="https://www.free-work.com/fr/tech-it/job-mission/unknown-radius",
+        url="https://www.free-work.com/fr/tech-it/job-mission/test/unknown-radius",
         title="Développeur Python",
         company="Exemple Conseil",
         location="Ville jamais référencée",
@@ -550,7 +703,7 @@ def test_radius_locality_matching_requires_city_boundaries(
     job = JobOffer(
         id="freework_boundary_radius",
         source="freework",
-        url="https://www.free-work.com/fr/tech-it/job-mission/boundary-radius",
+        url="https://www.free-work.com/fr/tech-it/job-mission/test/boundary-radius",
         title="Développeur Python",
         company="Exemple Conseil",
         location=job_location,

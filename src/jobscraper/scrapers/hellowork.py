@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Iterator, Optional
 from urllib.parse import quote_plus, urlencode
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from loguru import logger
 
 from jobscraper.models.job import (
@@ -203,7 +203,7 @@ class HelloWorkScraper(BaseScraper):
 
         return f"{base}?{urlencode(params)}" if params else base
 
-    def _extract_job_cards(self, soup: BeautifulSoup) -> list:
+    def _extract_job_cards(self, soup: BeautifulSoup) -> list[Tag]:
         """
         Extrait les cartes d'offres d'emploi de la page.
 
@@ -214,7 +214,7 @@ class HelloWorkScraper(BaseScraper):
             Liste des éléments de carte d'offre
         """
         # Sélecteur principal pour HelloWork (structure 2024-2025)
-        cards = soup.select("li[data-id-storage-item-id]")
+        cards = list(soup.select("li[data-id-storage-item-id]"))
         if cards:
             logger.debug(f"{len(cards)} offres trouvées")
             return cards
@@ -238,7 +238,7 @@ class HelloWorkScraper(BaseScraper):
 
         return []
 
-    def _parse_job_card(self, card) -> Optional[JobOffer]:
+    def _parse_job_card(self, card: Tag) -> Optional[JobOffer]:
         """
         Parse une carte d'offre d'emploi HelloWork.
 
@@ -256,14 +256,20 @@ class HelloWorkScraper(BaseScraper):
 
             # URL
             link = card.select_one("a[href*='/emplois/']")
-            url = link.get("href", "") if link else f"/fr-fr/emplois/{job_id}.html"
+            href = link.get("href", "") if link else None
+            url = (
+                href
+                if isinstance(href, str) and href
+                else f"/fr-fr/emplois/{job_id}.html"
+            )
             if url.startswith("/"):
                 url = f"{self.base_url}{url}"
 
             # Titre depuis l'input hidden (plus fiable)
             title_input = card.select_one('input[name="title"]')
             if title_input:
-                title = title_input.get("value", "").strip()
+                title_value = title_input.get("value", "")
+                title = title_value.strip() if isinstance(title_value, str) else None
             else:
                 # Fallback: depuis le paragraphe
                 title_elem = card.select_one("p.tw-typo-l, h3, h2")
@@ -272,14 +278,19 @@ class HelloWorkScraper(BaseScraper):
             # Entreprise depuis l'input hidden
             company_input = card.select_one('input[name="company"]')
             if company_input:
-                company = company_input.get("value", "").strip()
+                company_value = company_input.get("value", "")
+                company = (
+                    company_value.strip() if isinstance(company_value, str) else None
+                )
             else:
                 # Fallback
                 company_elem = card.select_one("p.tw-typo-s.tw-inline")
                 company = company_elem.get_text(strip=True) if company_elem else None
 
             # Tags (localisation, contrat, salaire, télétravail)
-            tags = card.select("div.tw-tag-secondary-s, div.tw-readonly.tw-tag-secondary-s")
+            tags = card.select(
+                "div.tw-tag-secondary-s, div.tw-readonly.tw-tag-secondary-s"
+            )
 
             location = None
             contract_type = None
@@ -292,7 +303,15 @@ class HelloWorkScraper(BaseScraper):
                 if re.search(r"\d{2,5}$|^\d{5}", text) and not location:
                     location = text
                 # Type de contrat
-                elif text.upper() in ["CDI", "CDD", "STAGE", "ALTERNANCE", "INTÉRIM", "INTERIM", "FREELANCE"]:
+                elif text.upper() in [
+                    "CDI",
+                    "CDD",
+                    "STAGE",
+                    "ALTERNANCE",
+                    "INTÉRIM",
+                    "INTERIM",
+                    "FREELANCE",
+                ]:
                     contract_type = self._map_contract_type(text)
                 # Salaire
                 elif "€" in text:
@@ -336,7 +355,7 @@ class HelloWorkScraper(BaseScraper):
         }
         return mapping.get(text_upper)
 
-    def _parse_posted_date(self, card) -> Optional[datetime]:
+    def _parse_posted_date(self, card: Tag) -> Optional[datetime]:
         """
         Parse la date de publication depuis la carte.
 
@@ -350,7 +369,7 @@ class HelloWorkScraper(BaseScraper):
         time_elem = card.select_one("time")
         if time_elem:
             datetime_attr = time_elem.get("datetime")
-            if datetime_attr:
+            if isinstance(datetime_attr, str):
                 try:
                     return datetime.fromisoformat(datetime_attr.replace("Z", "+00:00"))
                 except ValueError:
@@ -373,11 +392,20 @@ class HelloWorkScraper(BaseScraper):
         now = datetime.now()
 
         patterns = [
-            (r"il y a (\d+)\s*minute", lambda m: now - timedelta(minutes=int(m.group(1)))),
+            (
+                r"il y a (\d+)\s*minute",
+                lambda m: now - timedelta(minutes=int(m.group(1))),
+            ),
             (r"il y a (\d+)\s*heure", lambda m: now - timedelta(hours=int(m.group(1)))),
             (r"il y a (\d+)\s*jour", lambda m: now - timedelta(days=int(m.group(1)))),
-            (r"il y a (\d+)\s*semaine", lambda m: now - timedelta(weeks=int(m.group(1)))),
-            (r"il y a (\d+)\s*mois", lambda m: now - timedelta(days=int(m.group(1)) * 30)),
+            (
+                r"il y a (\d+)\s*semaine",
+                lambda m: now - timedelta(weeks=int(m.group(1))),
+            ),
+            (
+                r"il y a (\d+)\s*mois",
+                lambda m: now - timedelta(days=int(m.group(1)) * 30),
+            ),
             (r"aujourd'hui", lambda m: now),
             (r"hier", lambda m: now - timedelta(days=1)),
         ]
@@ -389,7 +417,9 @@ class HelloWorkScraper(BaseScraper):
 
         return None
 
-    def _parse_job_details(self, soup: BeautifulSoup, job_id: str, url: str) -> Optional[JobOffer]:
+    def _parse_job_details(
+        self, soup: BeautifulSoup, job_id: str, url: str
+    ) -> Optional[JobOffer]:
         """
         Parse les détails complets d'une offre.
 
@@ -411,12 +441,13 @@ class HelloWorkScraper(BaseScraper):
                 "[class*='company'], [class*='entreprise'], "
                 "[itemprop='hiringOrganization']"
             )
-            company = company_elem.get_text(strip=True) if company_elem else "Non spécifié"
+            company = (
+                company_elem.get_text(strip=True) if company_elem else "Non spécifié"
+            )
 
             # Localisation
             location_elem = soup.select_one(
-                "[class*='location'], [class*='lieu'], "
-                "[itemprop='jobLocation']"
+                "[class*='location'], [class*='lieu'], " "[itemprop='jobLocation']"
             )
             location = location_elem.get_text(strip=True) if location_elem else "France"
 
@@ -425,7 +456,9 @@ class HelloWorkScraper(BaseScraper):
                 "[class*='description'], [itemprop='description'], "
                 ".job-description, #job-description"
             )
-            description = description_elem.get_text(strip=True) if description_elem else None
+            description = (
+                description_elem.get_text(strip=True) if description_elem else None
+            )
 
             # Type de contrat
             contract_type = None

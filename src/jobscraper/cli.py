@@ -307,6 +307,19 @@ def search(
                         "offres trouvées"
                     )
 
+            if details:
+                freework_jobs = [job for job in jobs if job.source == "freework"]
+                enriched = []
+                with console.status("[bold cyan]Détails Free-Work...") as status:
+                    for index, job in enumerate(freework_jobs, 1):
+                        status.update(
+                            f"[bold cyan]Détails Free-Work... "
+                            f"{index}/{len(freework_jobs)}"
+                        )
+                        detailed = scraper.get_job_details(str(job.url))
+                        enriched.append(detailed if detailed else job)
+                jobs = [job for job in jobs if job.source != "freework"] + enriched
+
     if not jobs:
         console.print("[yellow]Aucune offre trouvée.[/yellow]")
         return

@@ -139,7 +139,9 @@ class AdzunaScraper(BaseScraper):
         """
         return None
 
-    def _build_search_url(self, criteria: SearchCriteria, page: int, results_per_page: int) -> str:
+    def _build_search_url(
+        self, criteria: SearchCriteria, page: int, results_per_page: int
+    ) -> str:
         """
         Construit l'URL de requête API Adzuna.
 
