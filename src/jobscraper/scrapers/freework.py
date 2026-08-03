@@ -95,8 +95,195 @@ class FreeWorkScraper(BaseScraper):
                 time.sleep(self.delay_between_requests)
 
     def get_job_details(self, job_id: str) -> Optional[JobOffer]:
-        """Details are added in the next implementation task."""
-        return None
+        """Fetch and normalize a public Free-Work detail page."""
+        external_id = self._external_id(job_id, "")
+        if not external_id:
+            return None
+
+        url = f"{self.base_url}/fr/tech-it/job-mission/{external_id}"
+        logger.debug(f"Récupération détails Free-Work: {url}")
+        try:
+            soup = BeautifulSoup(self._fetch_page(url), "lxml")
+            return self._parse_job_details(soup, external_id, url)
+        except Exception as exc:
+            logger.error(f"Erreur récupération détails Free-Work {external_id}: {exc}")
+            return None
+
+    def _parse_job_details(
+        self, soup: BeautifulSoup, external_id: str, url: str
+    ) -> Optional[JobOffer]:
+        """Prefer JobPosting JSON-LD and fill missing fields from page HTML."""
+        try:
+            structured_jobs = self._extract_json_ld_jobs(soup)
+            structured = structured_jobs[0] if structured_jobs else {}
+            structured_values = self._detail_structured_values(structured)
+            html_values = self._detail_html_values(soup)
+
+            def prefer_structured(key: str) -> Any:
+                value = structured_values.get(key)
+                return value if value not in (None, "", []) else html_values.get(key)
+
+            title = str(prefer_structured("title") or "").strip()
+            if not title:
+                return None
+
+            salary_min = prefer_structured("salary_min")
+            salary_max = prefer_structured("salary_max")
+            salary_currency = str(prefer_structured("salary_currency") or "EUR")
+            detail_url = urljoin(
+                self.base_url, str(prefer_structured("url") or url).strip()
+            )
+
+            return JobOffer(
+                id=f"freework_{external_id}",
+                source=self.name,
+                url=detail_url,
+                title=title,
+                company=str(prefer_structured("company") or "Non spécifié").strip(),
+                location=str(prefer_structured("location") or "France").strip(),
+                description=prefer_structured("description"),
+                salary_min=salary_min,
+                salary_max=salary_max,
+                salary_currency=salary_currency,
+                contract_type=self._map_contract_type(prefer_structured("contract")),
+                posted_at=self._parse_posted_date(prefer_structured("posted_at")),
+                skills=prefer_structured("skills") or [],
+                benefits=prefer_structured("benefits") or [],
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            logger.debug(f"Détails Free-Work ignorés: {exc}")
+            return None
+
+    def _detail_structured_values(self, item: dict[str, Any]) -> dict[str, Any]:
+        values = self._structured_values(item) if item else {}
+        salary_min, salary_max, salary_currency = self._parse_salary(
+            item.get("baseSalary") if item else None
+        )
+        values.update(
+            {
+                "description": self._clean_rich_text(item.get("description")),
+                "salary_min": salary_min,
+                "salary_max": salary_max,
+                "salary_currency": salary_currency,
+                "skills": self._normalize_list(
+                    item.get("skills") or item.get("qualifications")
+                ),
+                "benefits": self._normalize_list(item.get("jobBenefits")),
+            }
+        )
+        return values
+
+    def _detail_html_values(self, soup: BeautifulSoup) -> dict[str, Any]:
+        title = soup.select_one("h1")
+        company = soup.select_one(
+            "[itemprop='hiringOrganization'] [itemprop='name'], "
+            "[itemprop='hiringOrganization'], .job-company, [data-company]"
+        )
+        location = soup.select_one(
+            "[itemprop='jobLocation'], .job-location, [data-location]"
+        )
+        description = soup.select_one(
+            "[itemprop='description'], .job-description, #job-description, "
+            "[data-testid='job-description']"
+        )
+        contract = soup.select_one(
+            "[itemprop='employmentType'], .job-contract, [data-contract]"
+        )
+        salary = soup.select_one("[itemprop='baseSalary'], .job-salary, [data-salary]")
+        time_element = soup.select_one("time")
+        salary_min, salary_max, salary_currency = self._parse_salary(
+            salary.get_text(" ", strip=True) if salary else None
+        )
+
+        return {
+            "title": title.get_text(" ", strip=True) if title else None,
+            "company": self._element_value(company, "data-company"),
+            "location": self._element_value(location, "data-location"),
+            "description": (
+                description.get_text(" ", strip=True) if description else None
+            ),
+            "contract": self._element_value(contract, "data-contract"),
+            "posted_at": (
+                time_element.get("datetime") or time_element.get_text(" ", strip=True)
+                if time_element
+                else None
+            ),
+            "salary_min": salary_min,
+            "salary_max": salary_max,
+            "salary_currency": salary_currency,
+            "skills": self._html_list(soup, ".job-skills, [data-skills]"),
+            "benefits": self._html_list(soup, ".job-benefits, [data-benefits]"),
+        }
+
+    @staticmethod
+    def _element_value(element: Any, attribute: str) -> Optional[str]:
+        if element is None:
+            return None
+        return element.get(attribute) or element.get_text(" ", strip=True) or None
+
+    @classmethod
+    def _html_list(cls, soup: BeautifulSoup, selector: str) -> list[str]:
+        container = soup.select_one(selector)
+        if container is None:
+            return []
+        items = [item.get_text(" ", strip=True) for item in container.select("li")]
+        if items:
+            return [item for item in items if item]
+        return cls._normalize_list(container.get_text(" ", strip=True))
+
+    @staticmethod
+    def _clean_rich_text(value: Any) -> Optional[str]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        return BeautifulSoup(value, "lxml").get_text(" ", strip=True) or None
+
+    @staticmethod
+    def _normalize_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if not isinstance(value, str) or not value.strip():
+            return []
+        return [item.strip() for item in re.split(r"[,;\n]", value) if item.strip()]
+
+    @classmethod
+    def _parse_salary(
+        cls, value: Any
+    ) -> tuple[Optional[float], Optional[float], Optional[str]]:
+        currency = None
+        if isinstance(value, dict):
+            currency = value.get("currency")
+            amount = value.get("value", value)
+            if isinstance(amount, dict):
+                minimum = cls._as_float(amount.get("minValue") or amount.get("value"))
+                maximum = cls._as_float(amount.get("maxValue"))
+                return minimum, maximum, str(currency) if currency else None
+            return cls._as_float(amount), None, str(currency) if currency else None
+
+        if not isinstance(value, str):
+            return None, None, None
+        normalized = value.replace("\xa0", " ")
+        amounts = re.findall(r"\d[\d ]*(?:[.,]\d+)?", normalized)
+        parsed = [cls._as_float(amount) for amount in amounts]
+        parsed = [amount for amount in parsed if amount is not None]
+        currency_match = re.search(r"\b(EUR|USD|GBP)\b|€|\$|£", normalized, re.I)
+        if currency_match:
+            currency = {"€": "EUR", "$": "USD", "£": "GBP"}.get(
+                currency_match.group(0), currency_match.group(0).upper()
+            )
+        return (
+            parsed[0] if parsed else None,
+            parsed[1] if len(parsed) > 1 else None,
+            currency,
+        )
+
+    @staticmethod
+    def _as_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(str(value).replace(" ", "").replace(",", "."))
+        except ValueError:
+            return None
 
     def _build_search_url(self, criteria: SearchCriteria, page: int = 1) -> str:
         path = "/fr/tech-it/jobs"

@@ -72,6 +72,57 @@ def test_parse_search_fixture(load_fixture) -> None:
     )
 
 
+def test_get_job_details_parses_description_salary_and_skills(
+    load_fixture, monkeypatch
+):
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(
+        scraper, "_fetch_page", lambda _: load_fixture("freework/details.html")
+    )
+    job = scraper.get_job_details("freework_12345")
+    assert job is not None
+    assert "Python" in job.description
+    assert job.salary_min == 500.0
+    assert "Django" in job.skills
+
+
+def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
+    html = """
+    <main data-job-id="54321">
+      <h1>Ingénieur plateforme</h1>
+      <a class="job-company">Société Démo</a>
+      <span class="job-location">Lyon</span>
+      <div class="job-description">Construire une plateforme FastAPI.</div>
+      <span class="job-contract">CDI</span>
+      <span class="job-salary">55 000 - 65 000 EUR</span>
+      <ul class="job-skills"><li>FastAPI</li><li>Docker</li></ul>
+      <ul class="job-benefits"><li>RTT</li><li>Mutuelle</li></ul>
+    </main>
+    """
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+
+    job = scraper.get_job_details("54321")
+
+    assert job is not None
+    assert job.title == "Ingénieur plateforme"
+    assert job.company == "Société Démo"
+    assert job.location == "Lyon"
+    assert job.description == "Construire une plateforme FastAPI."
+    assert job.contract_type == ContractType.CDI
+    assert job.salary_min == 55000.0
+    assert job.salary_max == 65000.0
+    assert job.skills == ["FastAPI", "Docker"]
+    assert job.benefits == ["RTT", "Mutuelle"]
+
+
+def test_get_job_details_returns_none_for_unparseable_page(monkeypatch) -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: "<html></html>")
+
+    assert scraper.get_job_details("12345") is None
+
+
 def test_search_paginates_full_pages_stops_at_max_and_deduplicates(
     load_fixture, monkeypatch
 ) -> None:

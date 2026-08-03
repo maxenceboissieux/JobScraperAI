@@ -18,10 +18,11 @@ from jobscraper.models.job import (
     SortBy,
     WorkplaceType,
 )
-from jobscraper.scrapers.linkedin import LinkedInScraper
 from jobscraper.scrapers.adzuna import AdzunaScraper
-from jobscraper.scrapers.hellowork import HelloWorkScraper
 from jobscraper.scrapers.francetravail import FranceTravailScraper
+from jobscraper.scrapers.freework import FreeWorkScraper
+from jobscraper.scrapers.hellowork import HelloWorkScraper
+from jobscraper.scrapers.linkedin import LinkedInScraper
 from jobscraper.scrapers.wttj import WTTJScraper
 
 console = Console()
@@ -49,29 +50,68 @@ def main(ctx: click.Context, verbose: bool) -> None:
 @main.command()
 @click.option("--keywords", "-k", multiple=True, help="Mots-clés de recherche")
 @click.option("--title", "-t", help="Titre de poste exact (recherche précise)")
-@click.option("--location", "-l", default="France", help="Localisation (ville, région, pays)")
-@click.option("--radius", "-r", type=click.Choice(["5", "10", "25", "50", "100"]), help="Rayon de recherche en km")
-@click.option("--contract", "-c", multiple=True,
-              type=click.Choice(["cdi", "cdd", "stage", "alternance", "interim", "freelance"]),
-              help="Type de contrat")
-@click.option("--experience", "-e", multiple=True,
-              type=click.Choice(["internship", "junior", "mid", "senior", "lead", "director"]),
-              help="Niveau d'expérience")
-@click.option("--workplace", "-w", multiple=True,
-              type=click.Choice(["on_site", "remote", "hybrid"]),
-              help="Type de lieu de travail")
-@click.option("--date", type=click.Choice(["past_24h", "past_week", "past_month", "any_time"]),
-              default="any_time", help="Date de publication")
-@click.option("--sort", type=click.Choice(["relevance", "date"]), default="relevance",
-              help="Tri des résultats")
+@click.option(
+    "--location", "-l", default="France", help="Localisation (ville, région, pays)"
+)
+@click.option(
+    "--radius",
+    "-r",
+    type=click.Choice(["5", "10", "25", "50", "100"]),
+    help="Rayon de recherche en km",
+)
+@click.option(
+    "--contract",
+    "-c",
+    multiple=True,
+    type=click.Choice(["cdi", "cdd", "stage", "alternance", "interim", "freelance"]),
+    help="Type de contrat",
+)
+@click.option(
+    "--experience",
+    "-e",
+    multiple=True,
+    type=click.Choice(["internship", "junior", "mid", "senior", "lead", "director"]),
+    help="Niveau d'expérience",
+)
+@click.option(
+    "--workplace",
+    "-w",
+    multiple=True,
+    type=click.Choice(["on_site", "remote", "hybrid"]),
+    help="Type de lieu de travail",
+)
+@click.option(
+    "--date",
+    type=click.Choice(["past_24h", "past_week", "past_month", "any_time"]),
+    default="any_time",
+    help="Date de publication",
+)
+@click.option(
+    "--sort",
+    type=click.Choice(["relevance", "date"]),
+    default="relevance",
+    help="Tri des résultats",
+)
 @click.option("--company", multiple=True, help="Entreprises spécifiques")
 @click.option("--max-results", "-n", default=50, help="Nombre maximum de résultats")
 @click.option("--output", "-o", type=click.Path(), help="Fichier de sortie")
-@click.option("--format", "output_format", type=click.Choice(["json", "csv", "table"]), default="table")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "csv", "table"]),
+    default="table",
+)
 @click.option("--details", "-d", is_flag=True, help="Récupérer les détails complets")
-@click.option("--source", "-s", multiple=True,
-              type=click.Choice(["linkedin", "hellowork", "francetravail", "adzuna", "wttj", "all"]),
-              default=["linkedin", "hellowork", "francetravail", "adzuna", "wttj"], help="Sources: linkedin, hellowork, francetravail, adzuna (Indeed+Monster), wttj, all")
+@click.option(
+    "--source",
+    "-s",
+    multiple=True,
+    type=click.Choice(
+        ["linkedin", "hellowork", "francetravail", "adzuna", "wttj", "freework", "all"]
+    ),
+    default=["linkedin", "hellowork", "francetravail", "adzuna", "wttj", "freework"],
+    help="Sources: linkedin, hellowork, francetravail, adzuna (Indeed+Monster), wttj, freework, all",
+)
 @click.pass_context
 def search(
     ctx: click.Context,
@@ -120,7 +160,9 @@ def search(
         location=location,
         radius_km=int(radius) if radius else None,
         contract_types=[ContractType(c) for c in contract] if contract else [],
-        experience_levels=[ExperienceLevel(e) for e in experience] if experience else [],
+        experience_levels=(
+            [ExperienceLevel(e) for e in experience] if experience else []
+        ),
         workplace_types=[WorkplaceType(w) for w in workplace] if workplace else [],
         date_posted=DatePosted(date) if date else None,
         sort_by=SortBy(sort),
@@ -131,7 +173,7 @@ def search(
     # Affichage des critères
     console.print(f"[bold blue]Recherche d'offres d'emploi...[/bold blue]")
     if criteria.title:
-        console.print(f"Titre: \"{criteria.title}\"")
+        console.print(f'Titre: "{criteria.title}"')
     if criteria.keywords:
         console.print(f"Mots-clés: {', '.join(criteria.keywords)}")
     console.print(f"Localisation: {criteria.location}")
@@ -140,7 +182,9 @@ def search(
     if criteria.contract_types:
         console.print(f"Contrat: {', '.join(c.value for c in criteria.contract_types)}")
     if criteria.experience_levels:
-        console.print(f"Expérience: {', '.join(e.value for e in criteria.experience_levels)}")
+        console.print(
+            f"Expérience: {', '.join(e.value for e in criteria.experience_levels)}"
+        )
     if criteria.workplace_types:
         console.print(f"Lieu: {', '.join(w.value for w in criteria.workplace_types)}")
     if criteria.date_posted and criteria.date_posted != DatePosted.ANY_TIME:
@@ -153,25 +197,38 @@ def search(
     # Déterminer les sources à utiliser
     sources_to_use = set(source)
     if "all" in sources_to_use:
-        sources_to_use = {"linkedin", "hellowork", "francetravail", "adzuna", "wttj"}
+        sources_to_use = {
+            "linkedin",
+            "hellowork",
+            "francetravail",
+            "adzuna",
+            "wttj",
+            "freework",
+        }
     console.print(f"Sources: {', '.join(sources_to_use)}")
 
     jobs = []
 
     # Scraping LinkedIn
     if "linkedin" in sources_to_use:
-        with LinkedInScraper({"delay": config.linkedin.delay_between_requests}) as scraper:
+        with LinkedInScraper(
+            {"delay": config.linkedin.delay_between_requests}
+        ) as scraper:
             with console.status("[bold green]Scraping LinkedIn...") as status:
                 for job in scraper.search(criteria):
                     jobs.append(job)
-                    status.update(f"[bold green]LinkedIn... {len(jobs)} offres trouvées")
+                    status.update(
+                        f"[bold green]LinkedIn... {len(jobs)} offres trouvées"
+                    )
 
             if details and jobs:
                 linkedin_jobs = [j for j in jobs if j.source == "linkedin"]
                 enriched = []
                 with console.status("[bold cyan]Détails LinkedIn...") as status:
                     for i, job in enumerate(linkedin_jobs, 1):
-                        status.update(f"[bold cyan]Détails LinkedIn... {i}/{len(linkedin_jobs)}")
+                        status.update(
+                            f"[bold cyan]Détails LinkedIn... {i}/{len(linkedin_jobs)}"
+                        )
                         job_id = job.id.replace("linkedin_", "")
                         detailed = scraper.get_job_details(job_id)
                         enriched.append(detailed if detailed else job)
@@ -180,44 +237,75 @@ def search(
 
     # Scraping HelloWork
     if "hellowork" in sources_to_use:
-        with HelloWorkScraper({"delay": config.hellowork.delay_between_requests}) as scraper:
+        with HelloWorkScraper(
+            {"delay": config.hellowork.delay_between_requests}
+        ) as scraper:
             with console.status("[bold magenta]Scraping HelloWork...") as status:
                 initial_count = len(jobs)
                 for job in scraper.search(criteria):
                     jobs.append(job)
-                    status.update(f"[bold magenta]HelloWork... {len(jobs) - initial_count} offres trouvées")
+                    status.update(
+                        f"[bold magenta]HelloWork... {len(jobs) - initial_count} offres trouvées"
+                    )
 
     # Scraping France Travail (ex Pôle Emploi)
     if "francetravail" in sources_to_use:
-        with FranceTravailScraper({"delay": config.francetravail.delay_between_requests}) as scraper:
+        with FranceTravailScraper(
+            {"delay": config.francetravail.delay_between_requests}
+        ) as scraper:
             with console.status("[bold blue]Scraping France Travail...") as status:
                 initial_count = len(jobs)
                 for job in scraper.search(criteria):
                     jobs.append(job)
-                    status.update(f"[bold blue]France Travail... {len(jobs) - initial_count} offres trouvées")
+                    status.update(
+                        f"[bold blue]France Travail... {len(jobs) - initial_count} offres trouvées"
+                    )
 
     # Scraping Adzuna (agrégateur: Indeed, Monster, etc.)
     if "adzuna" in sources_to_use:
         import os
+
         adzuna_config = {
             "app_id": os.getenv("ADZUNA_APP_ID"),
             "app_key": os.getenv("ADZUNA_APP_KEY"),
         }
         with AdzunaScraper(adzuna_config) as scraper:
-            with console.status("[bold yellow]Scraping Adzuna (Indeed, Monster...)...") as status:
+            with console.status(
+                "[bold yellow]Scraping Adzuna (Indeed, Monster...)..."
+            ) as status:
                 initial_count = len(jobs)
                 for job in scraper.search(criteria):
                     jobs.append(job)
-                    status.update(f"[bold yellow]Adzuna... {len(jobs) - initial_count} offres trouvées")
+                    status.update(
+                        f"[bold yellow]Adzuna... {len(jobs) - initial_count} offres trouvées"
+                    )
 
     # Scraping Welcome to the Jungle (WTTJ)
     if "wttj" in sources_to_use:
         with WTTJScraper({"delay": config.wttj.delay_between_requests}) as scraper:
-            with console.status("[bold red]Scraping Welcome to the Jungle...") as status:
+            with console.status(
+                "[bold red]Scraping Welcome to the Jungle..."
+            ) as status:
                 initial_count = len(jobs)
                 for job in scraper.search(criteria):
                     jobs.append(job)
-                    status.update(f"[bold red]WTTJ... {len(jobs) - initial_count} offres trouvées")
+                    status.update(
+                        f"[bold red]WTTJ... {len(jobs) - initial_count} offres trouvées"
+                    )
+
+    # Scraping Free-Work
+    if "freework" in sources_to_use:
+        with FreeWorkScraper(
+            {"delay": config.freework.delay_between_requests}
+        ) as scraper:
+            with console.status("[bold cyan]Scraping Free-Work...") as status:
+                initial_count = len(jobs)
+                for job in scraper.search(criteria):
+                    jobs.append(job)
+                    status.update(
+                        f"[bold cyan]Free-Work... {len(jobs) - initial_count} "
+                        "offres trouvées"
+                    )
 
     if not jobs:
         console.print("[yellow]Aucune offre trouvée.[/yellow]")
@@ -278,8 +366,17 @@ def save_jobs_csv(jobs: List, output: Optional[str]) -> None:
     from io import StringIO
 
     fieldnames = [
-        "id", "source", "title", "company", "location", "url",
-        "contract_type", "experience_level", "remote", "posted_at", "description"
+        "id",
+        "source",
+        "title",
+        "company",
+        "location",
+        "url",
+        "contract_type",
+        "experience_level",
+        "remote",
+        "posted_at",
+        "description",
     ]
 
     if output:
@@ -314,6 +411,7 @@ def sources() -> None:
         ("France Travail", "Actif", "Ex Pôle Emploi"),
         ("Adzuna", "Actif*", "Agrégateur (Indeed, Monster) - nécessite clés API"),
         ("Welcome to the Jungle", "Actif", "Startups et scale-ups (via Algolia)"),
+        ("Free-Work", "Actif", "Missions freelance et emplois dans la tech"),
         ("Apec", "À venir", "Cadres et jeunes diplômés"),
     ]
 

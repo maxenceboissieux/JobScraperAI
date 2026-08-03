@@ -45,6 +45,12 @@ class WTTJConfig(ScraperConfig):
     pass  # Utilise Algolia API publique, pas de config spéciale
 
 
+class FreeWorkConfig(ScraperConfig):
+    """Configuration spécifique à Free-Work."""
+
+    pass
+
+
 class Config(BaseModel):
     """Configuration globale de l'application."""
 
@@ -56,6 +62,7 @@ class Config(BaseModel):
     hellowork: HelloWorkConfig = Field(default_factory=HelloWorkConfig)
     francetravail: FranceTravailConfig = Field(default_factory=FranceTravailConfig)
     wttj: WTTJConfig = Field(default_factory=WTTJConfig)
+    freework: FreeWorkConfig = Field(default_factory=FreeWorkConfig)
 
     # Configuration globale
     log_level: str = "INFO"
@@ -80,7 +87,8 @@ class Config(BaseModel):
             linkedin=LinkedInConfig(
                 enabled=os.getenv("LINKEDIN_ENABLED", "true").lower() == "true",
                 delay_between_requests=float(os.getenv("LINKEDIN_DELAY", "2.0")),
-                use_selenium=os.getenv("LINKEDIN_USE_SELENIUM", "false").lower() == "true",
+                use_selenium=os.getenv("LINKEDIN_USE_SELENIUM", "false").lower()
+                == "true",
                 headless=os.getenv("LINKEDIN_HEADLESS", "true").lower() == "true",
             ),
             hellowork=HelloWorkConfig(
@@ -94,6 +102,10 @@ class Config(BaseModel):
             wttj=WTTJConfig(
                 enabled=os.getenv("WTTJ_ENABLED", "true").lower() == "true",
                 delay_between_requests=float(os.getenv("WTTJ_DELAY", "1.0")),
+            ),
+            freework=FreeWorkConfig(
+                enabled=os.getenv("FREEWORK_ENABLED", "true").lower() == "true",
+                delay_between_requests=float(os.getenv("FREEWORK_DELAY", "2.0")),
             ),
         )
 
