@@ -9,8 +9,9 @@ from math import atan2, cos, radians, sin, sqrt
 from typing import Any, Dict, Iterator, Optional
 from urllib.parse import urlencode, urljoin, urlparse
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from loguru import logger
+from pydantic import HttpUrl
 
 from jobscraper.models.job import ContractType, DatePosted, JobOffer, SearchCriteria
 from jobscraper.scrapers.base import BaseScraper
@@ -173,7 +174,7 @@ class FreeWorkScraper(BaseScraper):
             return JobOffer(
                 id=f"freework_{external_id}",
                 source=self.name,
-                url=detail_url,
+                url=HttpUrl(detail_url),
                 title=title,
                 company=str(prefer_structured("company") or "Non spécifié").strip(),
                 location=str(prefer_structured("location") or "France").strip(),
@@ -182,6 +183,8 @@ class FreeWorkScraper(BaseScraper):
                 salary_max=salary_max,
                 salary_currency=salary_currency,
                 contract_type=self._map_contract_type(prefer_structured("contract")),
+                experience_level=None,
+                remote=None,
                 posted_at=self._parse_posted_date(prefer_structured("posted_at")),
                 skills=prefer_structured("skills") or [],
                 benefits=prefer_structured("benefits") or [],
@@ -209,7 +212,7 @@ class FreeWorkScraper(BaseScraper):
         )
         return values
 
-    def _detail_html_values(self, soup: BeautifulSoup) -> dict[str, Any]:
+    def _detail_html_values(self, soup: BeautifulSoup | Tag) -> dict[str, Any]:
         title = soup.select_one("h1")
         company = soup.select_one(
             "[itemprop='hiringOrganization'] [itemprop='name'], "
@@ -258,7 +261,7 @@ class FreeWorkScraper(BaseScraper):
         return element.get(attribute) or element.get_text(" ", strip=True) or None
 
     @classmethod
-    def _html_list(cls, soup: BeautifulSoup, selector: str) -> list[str]:
+    def _html_list(cls, soup: BeautifulSoup | Tag, selector: str) -> list[str]:
         container = soup.select_one(selector)
         if container is None:
             return []
@@ -422,7 +425,9 @@ class FreeWorkScraper(BaseScraper):
                 card = link.find_parent(
                     "div", class_=lambda classes: classes and "shadow" in classes
                 )
-            cards.append(card or link.parent)
+            fallback_card = card or link.parent
+            if fallback_card is not None:
+                cards.append(fallback_card)
         return cards
 
     def _parse_job_card(self, card: Any) -> Optional[JobOffer]:
@@ -451,11 +456,16 @@ class FreeWorkScraper(BaseScraper):
             job = JobOffer(
                 id=f"freework_{external_id}",
                 source=self.name,
-                url=url,
+                url=HttpUrl(url),
                 title=title,
                 company=company,
                 location=location,
+                description=None,
+                salary_min=None,
+                salary_max=None,
                 contract_type=contract_type,
+                experience_level=None,
+                remote=None,
                 posted_at=posted_at,
             )
             if self._canonical_external_id(url) == external_id:
@@ -589,7 +599,7 @@ class FreeWorkScraper(BaseScraper):
             if spans:
                 value = spans[-1].get_text(" ", strip=True)
                 if value and value.casefold() != label.casefold():
-                    return value
+                    return str(value)
         return None
 
     @staticmethod
@@ -665,11 +675,16 @@ class FreeWorkScraper(BaseScraper):
             if self._haversine_km(origin, destination) > criteria.radius_km:
                 return False
 
-        maximum_age = {
+        maximum_age_by_date = {
             DatePosted.PAST_24H: timedelta(hours=24),
             DatePosted.PAST_WEEK: timedelta(days=7),
             DatePosted.PAST_MONTH: timedelta(days=30),
-        }.get(criteria.date_posted)
+        }
+        maximum_age = (
+            maximum_age_by_date.get(criteria.date_posted)
+            if criteria.date_posted is not None
+            else None
+        )
         if maximum_age is None and criteria.posted_within_days:
             maximum_age = timedelta(days=criteria.posted_within_days)
         if maximum_age is not None:
