@@ -181,6 +181,8 @@ class FreeWorkScraper(BaseScraper):
                 "[data-job-id], [data-testid='job-detail'], "
                 "article.job-detail, main.job-detail"
             )
+            if detail_container is None and structured_jobs:
+                detail_container = soup.select_one("main[data-id], article[data-id]")
             if not structured_jobs and detail_container is None:
                 return None
 

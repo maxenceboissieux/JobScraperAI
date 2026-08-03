@@ -108,6 +108,52 @@ def test_live_shape_search_url_enriches_after_scraper_restart(
     assert requested_urls == [stored_url]
 
 
+def test_detail_jobposting_with_standalone_data_id_preserves_search_identity(
+    load_fixture, monkeypatch
+) -> None:
+    search_scraper = FreeWorkScraper({"delay": 0})
+    search_soup = BeautifulSoup(load_fixture("freework/search-live.html"), "lxml")
+    search_job = search_scraper._parse_job_card(
+        search_scraper._extract_job_cards(search_soup)[0]
+    )
+    assert search_job is not None
+
+    detail_html = f"""
+    <script type="application/ld+json">
+      {{"@type": "JobPosting", "title": "Développeur Python confirmé",
+       "url": "{search_job.url}"}}
+    </script>
+    <main data-id="659066">
+      <h1>Développeur Python confirmé</h1>
+      <div class="job-description">Construire des services Python.</div>
+    </main>
+    """
+    detail_scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(detail_scraper, "_fetch_page", lambda _url: detail_html)
+
+    detailed = detail_scraper.get_job_details(str(search_job.url))
+
+    assert detailed is not None
+    assert detailed.id == search_job.id == "freework_659066"
+
+
+def test_generic_page_with_unrelated_data_id_is_not_an_offer(monkeypatch) -> None:
+    html = """
+    <main data-id="659066">
+      <h1>Page générique</h1>
+      <p>Ce contenu ne décrit pas une offre.</p>
+    </main>
+    """
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+
+    detail = scraper.get_job_details(
+        "https://www.free-work.com/fr/tech-it/job-mission/python/page-generique"
+    )
+
+    assert detail is None
+
+
 def test_get_job_details_parses_description_salary_and_skills(
     load_fixture, monkeypatch
 ):
