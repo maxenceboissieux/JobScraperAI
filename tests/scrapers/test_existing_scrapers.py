@@ -92,6 +92,30 @@ def test_hellowork_preserves_an_iso_publication_date(load_fixture) -> None:
     assert job.posted_at == datetime.fromisoformat("2026-08-01T10:00:00+00:00")
 
 
+@pytest.mark.parametrize(
+    ("contract_label", "expected_contract_type"),
+    [
+        ("CDI", ContractType.CDI),
+        ("CDD", ContractType.CDD),
+        ("FULL-TIME", None),
+        ("CONTRACT", None),
+    ],
+)
+def test_linkedin_only_maps_unambiguous_contract_labels(
+    contract_label, expected_contract_type, load_fixture
+) -> None:
+    scraper = LinkedInScraper({"delay": 0})
+    html = load_fixture("linkedin/search.html").replace(
+        ">CDI</span>", f">{contract_label}</span>"
+    )
+    soup = BeautifulSoup(html, "lxml")
+
+    job = scraper._parse_job_card(scraper._extract_job_cards(soup)[0])
+
+    assert job is not None
+    assert job.contract_type == expected_contract_type
+
+
 def test_wttj_parses_representative_hit(load_fixture) -> None:
     scraper = WTTJScraper({"delay": 0})
 

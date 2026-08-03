@@ -372,18 +372,15 @@ class LinkedInScraper(BaseScraper):
             )
             if contract_elem:
                 contract_text = contract_elem.get_text(strip=True).upper()
-                if "CDI" in contract_text or "FULL-TIME" in contract_text:
-                    contract_type = ContractType.CDI
-                elif "CDD" in contract_text or "CONTRACT" in contract_text:
-                    contract_type = ContractType.CDD
-                elif "INTERIM" in contract_text or "TEMPORARY" in contract_text:
-                    contract_type = ContractType.INTERIM
-                elif "STAGE" in contract_text or "INTERNSHIP" in contract_text:
-                    contract_type = ContractType.STAGE
-                elif "ALTERNANCE" in contract_text or "APPRENTICESHIP" in contract_text:
-                    contract_type = ContractType.ALTERNANCE
-                elif "FREELANCE" in contract_text:
-                    contract_type = ContractType.FREELANCE
+                contract_type = {
+                    "CDI": ContractType.CDI,
+                    "CDD": ContractType.CDD,
+                    "INTÉRIM": ContractType.INTERIM,
+                    "INTERIM": ContractType.INTERIM,
+                    "STAGE": ContractType.STAGE,
+                    "ALTERNANCE": ContractType.ALTERNANCE,
+                    "FREELANCE": ContractType.FREELANCE,
+                }.get(contract_text)
 
             return JobOffer(
                 id=f"linkedin_{job_id}",
