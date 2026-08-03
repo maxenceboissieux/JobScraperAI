@@ -158,9 +158,9 @@ def _is_unknown_location(location: str) -> bool:
 def _location_evidence(raw_location: str) -> _LocationEvidence:
     """Parse raw clauses into place, non-city, unknown, or conflict evidence."""
 
-    trailing_france_place = _trailing_france_place_evidence(raw_location)
-    if trailing_france_place is not None:
-        return trailing_france_place
+    trailing_france_evidence = _trailing_france_evidence(raw_location)
+    if trailing_france_evidence is not None:
+        return trailing_france_evidence
 
     clause_source = _REMOTE_CADENCE_SLASH.sub(r"\1 par \2", raw_location)
     clauses = [
@@ -238,24 +238,19 @@ def _location_clause_evidence(
     return _evidence_for_key(key)
 
 
-def _trailing_france_place_evidence(
-    raw_location: str,
-) -> _LocationEvidence | None:
-    """Preserve the normalizer's exact, safely-delimited France qualifier."""
+def _trailing_france_evidence(raw_location: str) -> _LocationEvidence | None:
+    """Type one intact clause before discarding its trailing France qualifier."""
 
     match = _SAFE_TRAILING_FRANCE_QUALIFIER.fullmatch(raw_location)
     if match is None:
         return None
-    raw_place = match.group("place")
-    place_clauses = [
-        clause.strip()
-        for clause in _LOCATION_CLAUSE_SEPARATOR.split(raw_place)
-        if clause.strip()
-    ]
-    if len(place_clauses) != 1:
+    raw_clause = match.group("place").strip()
+    if not raw_clause or _LOCATION_CLAUSE_SEPARATOR.search(raw_clause) is not None:
         return None
-    evidence = _bounded_location_evidence(normalize_location(raw_location))
-    return evidence if evidence.kind == "place" else None
+    evidence = _location_clause_evidence(raw_clause, has_remote_context=False)
+    if evidence is None or evidence.kind == "remote_descriptor":
+        return _LocationEvidence("unknown")
+    return evidence
 
 
 def _standalone_preposition_evidence(key: str) -> _LocationEvidence | None:

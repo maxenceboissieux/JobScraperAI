@@ -736,6 +736,154 @@ def test_safe_trailing_france_qualifier_preserves_city_evidence(
 
 
 @pytest.mark.parametrize(
+    "qualified_location",
+    [
+        "À Paris, France",
+        "À Paris (France)",
+        "À Paris - France",
+        "À Paris – France",
+        "À Paris — France",
+    ],
+)
+def test_safe_france_qualifier_types_a_prepositional_place_clause(
+    qualified_location: str,
+) -> None:
+    """Fails if the France fast path retains ``à`` in the place key."""
+
+    qualified = Job("Développeur Python", "Acme", qualified_location)
+    paris = Job("Développeur Python", "ACME", "Paris")
+    lyon = Job("Développeur Python Backend", "ACME", "Lyon")
+    confirmed = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    vetoed = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("villes_incompatibles",)
+    )
+
+    assert classify_duplicate(qualified, paris) == confirmed
+    assert classify_duplicate(paris, qualified) == confirmed
+    assert classify_duplicate(qualified, lyon) == vetoed
+    assert classify_duplicate(lyon, qualified) == vetoed
+
+
+@pytest.mark.parametrize(
+    ("qualified_location", "same_scope", "different_scope"),
+    [
+        ("En Bretagne, France", "Bretagne", "Normandie"),
+        ("En Bretagne (France)", "Bretagne", "Normandie"),
+        ("En Bretagne - France", "Bretagne", "Normandie"),
+        ("En Bretagne – France", "Bretagne", "Normandie"),
+        ("En Bretagne — France", "Bretagne", "Normandie"),
+        ("En Belgique, France", "Belgique", "France"),
+        ("En Belgique (France)", "Belgique", "France"),
+        ("En Belgique - France", "Belgique", "France"),
+        ("En Belgique – France", "Belgique", "France"),
+        ("En Belgique — France", "Belgique", "France"),
+    ],
+)
+def test_safe_france_qualifier_preserves_prepositional_non_city_scope(
+    qualified_location: str, same_scope: str, different_scope: str
+) -> None:
+    """Fails if a typed country/region clause is promoted to a city."""
+
+    exact_scope = Job("Développeur Python", "Acme", qualified_location)
+    close_scope = Job("Développeur Python Backend", "ACME", qualified_location)
+    same = Job("Développeur Python", "ACME", same_scope)
+    different = Job("Développeur Python", "ACME", different_scope)
+    not_confirmed = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
+    possible = DuplicateDecision(
+        "possible",
+        pytest.approx(0.8181818181818182),
+        ("entreprise_identique", "lieu_compatible", "titre_proche"),
+    )
+    incompatible = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("lieux_incompatibles",)
+    )
+
+    assert classify_duplicate(exact_scope, exact_scope) == not_confirmed
+    assert classify_duplicate(close_scope, same) == possible
+    assert classify_duplicate(same, close_scope) == possible
+    assert classify_duplicate(close_scope, different) == incompatible
+    assert classify_duplicate(different, close_scope) == incompatible
+
+
+@pytest.mark.parametrize(
+    "qualified_location",
+    [
+        "En Arbitraireville, France",
+        "En Arbitraireville (France)",
+        "En Arbitraireville - France",
+        "En Arbitraireville – France",
+        "En Arbitraireville — France",
+        "À Non spécifié, France",
+        "À Non spécifié (France)",
+        "À Non spécifié - France",
+        "À Non spécifié – France",
+        "À Non spécifié — France",
+        "À National, France",
+        "À National (France)",
+        "À National - France",
+        "À National – France",
+        "À National — France",
+    ],
+)
+def test_safe_france_qualifier_keeps_unknown_prepositional_evidence_unknown(
+    qualified_location: str,
+) -> None:
+    """Fails if an unknown captured clause inherits France as a concrete scope."""
+
+    exact_unknown = Job("Développeur Python", "Acme", qualified_location)
+    close_unknown = Job("Développeur Python Backend", "ACME", qualified_location)
+    belgium = Job("Développeur Python", "ACME", "Belgique")
+    not_confirmed = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
+    possible = DuplicateDecision(
+        "possible",
+        pytest.approx(0.8181818181818182),
+        ("entreprise_identique", "lieu_compatible", "titre_proche"),
+    )
+
+    assert classify_duplicate(exact_unknown, exact_unknown) == not_confirmed
+    assert classify_duplicate(close_unknown, belgium) == possible
+    assert classify_duplicate(belgium, close_unknown) == possible
+
+
+@pytest.mark.parametrize(
+    "tunneled_location",
+    [
+        "Paris /, France",
+        "Paris |, France",
+        "Paris ;, France",
+        "Paris / (France)",
+        "Paris | (France)",
+        "Paris ; (France)",
+        "Paris / - France",
+        "Paris | - France",
+        "Paris ; - France",
+        "Paris / – France",
+        "Paris | – France",
+        "Paris ; – France",
+        "Paris / — France",
+        "Paris | — France",
+        "Paris ; — France",
+    ],
+)
+def test_safe_france_qualifier_rejects_tunneled_structural_clauses(
+    tunneled_location: str,
+) -> None:
+    """Fails if filtering an empty split clause admits a structural delimiter."""
+
+    tunneled = Job("Développeur Python", "Acme", tunneled_location)
+    paris = Job("Développeur Python", "ACME", "Paris")
+    expected = DuplicateDecision("none", 1.0, ("lieux_incompatibles",))
+
+    assert classify_duplicate(tunneled, tunneled) == expected
+    assert classify_duplicate(tunneled, paris) == expected
+    assert classify_duplicate(paris, tunneled) == expected
+
+
+@pytest.mark.parametrize(
     "conflicted_location",
     [
         "Paris / Belgique / remote",
