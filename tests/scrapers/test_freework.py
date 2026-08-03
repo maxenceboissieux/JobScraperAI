@@ -76,14 +76,26 @@ def test_get_job_details_parses_description_salary_and_skills(
     load_fixture, monkeypatch
 ):
     scraper = FreeWorkScraper({"delay": 0})
-    monkeypatch.setattr(
-        scraper, "_fetch_page", lambda _: load_fixture("freework/details.html")
-    )
+    soup = BeautifulSoup(load_fixture("freework/search.html"), "lxml")
+    search_job = scraper._parse_job_card(scraper._extract_job_cards(soup)[0])
+    requested_urls = []
+
+    def fetch_page(url: str) -> str:
+        requested_urls.append(url)
+        return load_fixture("freework/details.html")
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
+
+    assert search_job is not None
     job = scraper.get_job_details("freework_12345")
+
     assert job is not None
     assert "Python" in job.description
     assert job.salary_min == 500.0
     assert "Django" in job.skills
+    assert requested_urls == [
+        "https://www.free-work.com/fr/tech-it/developpeur-python/job-mission/12345"
+    ]
 
 
 def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
@@ -102,7 +114,9 @@ def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
     scraper = FreeWorkScraper({"delay": 0})
     monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
 
-    job = scraper.get_job_details("54321")
+    job = scraper.get_job_details(
+        "https://www.free-work.com/fr/tech-it/ingenieur-plateforme/job-mission/54321"
+    )
 
     assert job is not None
     assert job.title == "Ingénieur plateforme"
@@ -116,10 +130,44 @@ def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
     assert job.benefits == ["RTT", "Mutuelle"]
 
 
-def test_get_job_details_returns_none_for_unparseable_page(monkeypatch) -> None:
+def test_get_job_details_does_not_fetch_an_uncached_bare_id(monkeypatch) -> None:
     scraper = FreeWorkScraper({"delay": 0})
-    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: "<html></html>")
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: pytest.fail("an uncached ID must not fabricate a detail URL"),
+    )
 
+    assert scraper.get_job_details("12345") is None
+
+
+def test_get_job_details_does_not_fetch_a_slugless_absolute_url(monkeypatch) -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: pytest.fail("a slugless path is not a canonical offer URL"),
+    )
+
+    assert (
+        scraper.get_job_details(
+            "https://www.free-work.com/fr/tech-it/job-mission/12345"
+        )
+        is None
+    )
+
+
+def test_get_job_details_rejects_a_headed_error_page(load_fixture, monkeypatch) -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+    soup = BeautifulSoup(load_fixture("freework/search.html"), "lxml")
+    search_job = scraper._parse_job_card(scraper._extract_job_cards(soup)[0])
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: load_fixture("freework/not-found.html"),
+    )
+
+    assert search_job is not None
     assert scraper.get_job_details("12345") is None
 
 

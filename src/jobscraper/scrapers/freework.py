@@ -35,6 +35,7 @@ class FreeWorkScraper(BaseScraper):
         self.delay_between_requests = float(self.config.get("delay", 2))
         self.page_size = max(1, int(self.config.get("page_size", 16)))
         self.max_pages = max(1, int(self.config.get("max_pages", 50)))
+        self._canonical_urls: dict[str, str] = {}
 
     def search(self, criteria: SearchCriteria) -> Iterator[JobOffer]:
         """Yield unique matching jobs from consecutive full result pages."""
@@ -96,11 +97,11 @@ class FreeWorkScraper(BaseScraper):
 
     def get_job_details(self, job_id: str) -> Optional[JobOffer]:
         """Fetch and normalize a public Free-Work detail page."""
-        external_id = self._external_id(job_id, "")
-        if not external_id:
+        target = self._resolve_detail_target(job_id)
+        if target is None:
             return None
 
-        url = f"{self.base_url}/fr/tech-it/job-mission/{external_id}"
+        external_id, url = target
         logger.debug(f"Récupération détails Free-Work: {url}")
         try:
             soup = BeautifulSoup(self._fetch_page(url), "lxml")
@@ -109,15 +110,50 @@ class FreeWorkScraper(BaseScraper):
             logger.error(f"Erreur récupération détails Free-Work {external_id}: {exc}")
             return None
 
+    def _resolve_detail_target(self, value: str) -> Optional[tuple[str, str]]:
+        """Resolve a cached ID or a canonical absolute Free-Work offer URL."""
+        rendered = value.strip()
+        parsed = urlparse(rendered)
+        if parsed.scheme or parsed.netloc:
+            external_id = self._canonical_external_id(rendered)
+            if not external_id:
+                return None
+            self._canonical_urls[external_id] = rendered
+            return external_id, rendered
+
+        external_id = self._external_id(rendered, "")
+        if not external_id:
+            return None
+        url = self._canonical_urls.get(external_id)
+        return (external_id, url) if url else None
+
+    @staticmethod
+    def _canonical_external_id(value: str) -> Optional[str]:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.hostname not in {
+            "free-work.com",
+            "www.free-work.com",
+        }:
+            return None
+        match = re.fullmatch(r"/fr/tech-it/[^/]+/job-mission/([^/]+)/?", parsed.path)
+        return match.group(1) if match else None
+
     def _parse_job_details(
         self, soup: BeautifulSoup, external_id: str, url: str
     ) -> Optional[JobOffer]:
         """Prefer JobPosting JSON-LD and fill missing fields from page HTML."""
         try:
             structured_jobs = self._extract_json_ld_jobs(soup)
+            detail_container = soup.select_one(
+                "[data-job-id], [data-testid='job-detail'], "
+                "article.job-detail, main.job-detail"
+            )
+            if not structured_jobs and detail_container is None:
+                return None
+
             structured = structured_jobs[0] if structured_jobs else {}
             structured_values = self._detail_structured_values(structured)
-            html_values = self._detail_html_values(soup)
+            html_values = self._detail_html_values(detail_container or soup)
 
             def prefer_structured(key: str) -> Any:
                 value = structured_values.get(key)
@@ -412,7 +448,7 @@ class FreeWorkScraper(BaseScraper):
             contract_type = self._map_contract_type(values.get("contract"))
             posted_at = self._parse_posted_date(values.get("posted_at"))
 
-            return JobOffer(
+            job = JobOffer(
                 id=f"freework_{external_id}",
                 source=self.name,
                 url=url,
@@ -422,6 +458,9 @@ class FreeWorkScraper(BaseScraper):
                 contract_type=contract_type,
                 posted_at=posted_at,
             )
+            if self._canonical_external_id(url) == external_id:
+                self._canonical_urls[external_id] = url
+            return job
         except (AttributeError, TypeError, ValueError) as exc:
             logger.debug(f"Carte Free-Work ignorée: {exc}")
             return None
