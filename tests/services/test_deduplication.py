@@ -176,6 +176,8 @@ def test_company_with_a_trailing_long_legal_form_remains_explicit() -> None:
         "Full remote",
         "100% télétravail",
         "À distance",
+        "National",
+        "Nationale",
         "Île-de-France",
     ],
 )
@@ -215,6 +217,34 @@ def test_embedded_remote_marker_can_only_support_a_possible_match() -> None:
         "possible",
         pytest.approx(0.8181818181818182),
         ("entreprise_identique", "lieu_compatible", "titre_proche"),
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_city_with_remote_qualifier_confirms_when_city_evidence_agrees() -> None:
+    """Fails if a remote qualifier hides an otherwise identical explicit city."""
+
+    left = Job("Développeur Python", "Acme", "Paris / télétravail")
+    right = Job("Développeur Python", "ACME", "Paris")
+
+    expected = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_city_with_remote_qualifier_vetoes_a_different_explicit_city() -> None:
+    """Fails if a remote qualifier lets Paris and Lyon form a possible match."""
+
+    left = Job("Développeur Python", "Acme", "Paris / télétravail")
+    right = Job("Développeur Python Backend", "ACME", "Lyon")
+
+    expected = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("villes_incompatibles",)
     )
     assert classify_duplicate(left, right) == expected
     assert classify_duplicate(right, left) == expected

@@ -60,8 +60,8 @@ def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
     ):
         return DuplicateDecision("none", score, ("seniorite_incompatible",))
 
-    left_location = normalize_location(left.location)
-    right_location = normalize_location(right.location)
+    left_location = _location_evidence_key(normalize_location(left.location))
+    right_location = _location_evidence_key(normalize_location(right.location))
     left_location_is_explicit = _is_explicit_location(left_location)
     right_location_is_explicit = _is_explicit_location(right_location)
     if (
@@ -144,8 +144,27 @@ def _is_explicit_location(location: str) -> bool:
 
 
 def _is_unknown_location(location: str) -> bool:
-    return bool(
-        _UNKNOWN_LOCATION.fullmatch(location) or _REMOTE_LOCATION.search(location)
+    return not location or _UNKNOWN_LOCATION.fullmatch(location) is not None
+
+
+def _location_evidence_key(location: str) -> str:
+    """Remove remote-only qualifiers while retaining every place token.
+
+    A bare ``Full remote`` label becomes empty and therefore non-explicit.  In
+    contrast, ``Paris / télétravail`` becomes ``paris``: the remote qualifier
+    cannot hide a city that must still agree with the other listing.
+    """
+
+    tokens = location.split()
+    if not _has_remote_qualifier(tokens):
+        return location
+    return " ".join(token for token in tokens if token not in _REMOTE_FILLER_TOKENS)
+
+
+def _has_remote_qualifier(tokens: list[str]) -> bool:
+    return bool(_REMOTE_MARKER_TOKENS.intersection(tokens)) or any(
+        first == "a" and second == "distance"
+        for first, second in zip(tokens, tokens[1:])
     )
 
 
@@ -188,12 +207,24 @@ _UNKNOWN_LOCATION = re.compile(
     r"n\s*[ac]|"
     r"(?:non|pas)\s+(?:communique(?:e)?|precis(?:e|ee)?|"
     r"renseigne(?:e)?|specifie(?:e)?)|"
-    r"(?:france\s+)?entiere|"
+    r"(?:france\s+)?entiere|national(?:e)?|"
     r"inconnu(?:e)?|unknown|not\s+specified"
     r")$"
 )
-_REMOTE_LOCATION = re.compile(
-    r"(?:^|\s)(?:a\s+distance|hybrid|hybride|remote|teletravail)(?:\s|$)"
+_REMOTE_MARKER_TOKENS = frozenset({"hybrid", "hybride", "remote", "teletravail"})
+_REMOTE_FILLER_TOKENS = frozenset(
+    {
+        "a",
+        "distance",
+        "en",
+        "full",
+        "hybrid",
+        "hybride",
+        "pourcent",
+        "remote",
+        "teletravail",
+        "100",
+    }
 )
 _COUNTRY_LOCATION_KEYS = frozenset(
     {
