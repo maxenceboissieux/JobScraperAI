@@ -3,7 +3,8 @@
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from jobscraper.db.base import utc_now
@@ -58,34 +59,34 @@ class JobRepository:
             )
         )
         if listing is None:
-            job = self._canonical_job_from_offer(job_offer)
-            self.session.add(job)
-            self.session.flush()
-            listing = SourceListing(
-                canonical_job_id=job.pk,
-                source=job_offer.source,
-                external_id=job_offer.id,
-                url=str(job_offer.url),
-                title=job_offer.title,
-                company=job_offer.company,
-                location=job_offer.location,
-                posted_at=job_offer.posted_at,
-                first_seen_at=observed_at,
-                last_seen_at=observed_at,
-            )
-            self.session.add(listing)
+            try:
+                with self.session.begin_nested():
+                    job = self._canonical_job_from_offer(job_offer)
+                    self.session.add(job)
+                    self.session.flush()
+                    listing = SourceListing(
+                        canonical_job_id=job.pk,
+                        source=job_offer.source,
+                        external_id=job_offer.id,
+                        url=str(job_offer.url),
+                        title=job_offer.title,
+                        company=job_offer.company,
+                        location=job_offer.location,
+                        posted_at=job_offer.posted_at,
+                        first_seen_at=observed_at,
+                        last_seen_at=observed_at,
+                    )
+                    self.session.add(listing)
+                    self.session.flush()
+            except IntegrityError:
+                listing = self._source_listing(job_offer.source, job_offer.id)
+                if listing is None:
+                    raise
+                job = self._canonical_by_pk(listing.canonical_job_id)
+                self._refresh_listing(job, listing, job_offer, observed_at)
         else:
-            job = self.session.get(CanonicalJob, listing.canonical_job_id)
-            if job is None:
-                raise LookupError("Source listing points to a missing canonical job")
-            self._apply_offer(job, job_offer)
-            listing.url = str(job_offer.url)
-            listing.title = job_offer.title
-            listing.company = job_offer.company
-            listing.location = job_offer.location
-            listing.posted_at = job_offer.posted_at
-            listing.active = True
-            listing.last_seen_at = observed_at
+            job = self._canonical_by_pk(listing.canonical_job_id)
+            self._refresh_listing(job, listing, job_offer, observed_at)
 
         self.session.flush()
         return job
@@ -100,19 +101,49 @@ class JobRepository:
         if saved_search is None or job is None:
             raise LookupError("Saved search or job does not exist")
 
-        association = self.session.scalar(
-            select(SearchListing).where(
-                SearchListing.saved_search_id == saved_search.pk,
-                SearchListing.canonical_job_id == job.pk,
-            )
-        )
+        association = self._search_listing(saved_search.pk, job.pk)
         if association is None:
-            association = SearchListing(
-                saved_search_id=saved_search.pk, canonical_job_id=job.pk
-            )
-            self.session.add(association)
-            self.session.flush()
+            try:
+                with self.session.begin_nested():
+                    association = SearchListing(
+                        saved_search_id=saved_search.pk, canonical_job_id=job.pk
+                    )
+                    self.session.add(association)
+                    self.session.flush()
+            except IntegrityError:
+                association = self._search_listing(saved_search.pk, job.pk)
+                if association is None:
+                    raise
         return association
+
+    def merge_canonical_jobs(self, keep_job_id: str, merge_job_id: str) -> CanonicalJob:
+        """Merge a confirmed duplicate into ``keep_job_id`` without losing links.
+
+        Task 4 should call this after a confirmed duplicate decision, passing the
+        canonical UUID to keep first and the newly upserted duplicate second.
+        The surviving job owns both source listings and the union of saved-search
+        links; non-conflicting duplicate relations are reassigned in canonical
+        pair order.  The caller retains control of the outer transaction.
+        """
+
+        keep = self.get_job(keep_job_id)
+        merge = self.get_job(merge_job_id)
+        if keep is None or merge is None:
+            raise LookupError("Canonical job does not exist")
+        if keep.pk == merge.pk:
+            return keep
+
+        self._preserve_detail_cache(keep, merge)
+        self._merge_search_listings(keep.pk, merge.pk)
+        self.session.execute(
+            update(SourceListing)
+            .where(SourceListing.canonical_job_id == merge.pk)
+            .values(canonical_job_id=keep.pk)
+        )
+        self._merge_duplicate_relations(keep.pk, merge.pk)
+        self.session.delete(merge)
+        self.session.flush()
+        return keep
 
     def get_job(self, job_id: str) -> CanonicalJob | None:
         """Return a canonical job by public UUID."""
@@ -160,13 +191,23 @@ class JobRepository:
             raise ValueError("limit must be non-negative")
         if offset < 0:
             raise ValueError("offset must be non-negative")
-        if duplicate_state not in {None, "duplicate", "unique"}:
-            raise ValueError("duplicate_state must be 'duplicate' or 'unique'")
+        if duplicate_state not in {
+            None,
+            "confirmed",
+            "possible",
+            "none",
+            "duplicate",
+            "unique",
+        }:
+            raise ValueError(
+                "duplicate_state must be 'confirmed', 'possible', or 'none'"
+            )
 
         jobs = list(self.session.scalars(select(CanonicalJob)))
         sources_by_job = self._sources_by_job()
         attached_job_pks = self._attached_job_pks(saved_search_id)
-        duplicate_job_pks = self._duplicate_job_pks()
+        confirmed_job_pks = self._confirmed_job_pks()
+        possible_job_pks = self._possible_job_pks() - confirmed_job_pks
         query_key = _normalise(query) if query else None
 
         def matches(job: CanonicalJob) -> bool:
@@ -206,14 +247,22 @@ class JobRepository:
                 return False
             if skills and not _contains(job.skills, skills):
                 return False
-            if duplicate_state == "duplicate" and job.pk not in duplicate_job_pks:
+            if duplicate_state == "confirmed" and job.pk not in confirmed_job_pks:
                 return False
-            if duplicate_state == "unique" and job.pk in duplicate_job_pks:
+            if duplicate_state == "possible" and job.pk not in possible_job_pks:
+                return False
+            if duplicate_state in {"none", "unique"} and job.pk in (
+                confirmed_job_pks | possible_job_pks
+            ):
+                return False
+            if duplicate_state == "duplicate" and job.pk not in (
+                confirmed_job_pks | possible_job_pks
+            ):
                 return False
             return True
 
         matching = [job for job in jobs if matches(job)]
-        self._sort(matching, sort)
+        self._sort(matching, sort, query_key)
         end = None if limit is None else offset + limit
         return matching[offset:end]
 
@@ -226,26 +275,168 @@ class JobRepository:
             location=job_offer.location,
             normalized_location=_normalise(job_offer.location),
         )
-        self._apply_offer(job, job_offer)
+        self._apply_offer(job, job_offer, preserve_cached_details=False)
         return job
 
-    def _apply_offer(self, job: CanonicalJob, job_offer: JobOffer) -> None:
+    def _refresh_listing(
+        self,
+        job: CanonicalJob,
+        listing: SourceListing,
+        job_offer: JobOffer,
+        observed_at: datetime,
+    ) -> None:
+        self._apply_offer(job, job_offer, preserve_cached_details=True)
+        listing.url = str(job_offer.url)
+        listing.title = job_offer.title
+        listing.company = job_offer.company
+        listing.location = job_offer.location
+        listing.posted_at = job_offer.posted_at
+        listing.active = True
+        listing.last_seen_at = observed_at
+
+    def _apply_offer(
+        self, job: CanonicalJob, job_offer: JobOffer, *, preserve_cached_details: bool
+    ) -> None:
         job.title = job_offer.title
         job.normalized_title = _normalise(job_offer.title)
         job.company = job_offer.company
         job.normalized_company = _normalise(job_offer.company)
         job.location = job_offer.location
         job.normalized_location = _normalise(job_offer.location)
-        job.description = job_offer.description
-        job.salary_min = job_offer.salary_min
-        job.salary_max = job_offer.salary_max
-        job.salary_currency = job_offer.salary_currency
+        if self._meaningful_text(job_offer.description) or not preserve_cached_details:
+            job.description = job_offer.description
+        if job_offer.salary_min is not None or not preserve_cached_details:
+            job.salary_min = job_offer.salary_min
+        if job_offer.salary_max is not None or not preserve_cached_details:
+            job.salary_max = job_offer.salary_max
+        if (
+            job_offer.salary_min is not None
+            or job_offer.salary_max is not None
+            or not preserve_cached_details
+        ):
+            job.salary_currency = job_offer.salary_currency
         job.contract_type = _value(job_offer.contract_type)
         job.experience_level = _value(job_offer.experience_level)
         job.remote = job_offer.remote
         job.posted_at = job_offer.posted_at
-        job.skills = list(job_offer.skills)
-        job.benefits = list(job_offer.benefits)
+        if job_offer.skills or not preserve_cached_details:
+            job.skills = list(job_offer.skills)
+        if job_offer.benefits or not preserve_cached_details:
+            job.benefits = list(job_offer.benefits)
+
+    @staticmethod
+    def _meaningful_text(value: str | None) -> bool:
+        return value is not None and bool(value.strip())
+
+    def _source_listing(self, source: str, external_id: str) -> SourceListing | None:
+        return self.session.scalar(
+            select(SourceListing).where(
+                SourceListing.source == source,
+                SourceListing.external_id == external_id,
+            )
+        )
+
+    def _canonical_by_pk(self, job_pk: int) -> CanonicalJob:
+        job = self.session.get(CanonicalJob, job_pk)
+        if job is None:
+            raise LookupError("Source listing points to a missing canonical job")
+        return job
+
+    def _search_listing(
+        self, saved_search_pk: int, canonical_job_pk: int
+    ) -> SearchListing | None:
+        return self.session.scalar(
+            select(SearchListing).where(
+                SearchListing.saved_search_id == saved_search_pk,
+                SearchListing.canonical_job_id == canonical_job_pk,
+            )
+        )
+
+    def _preserve_detail_cache(self, keep: CanonicalJob, merge: CanonicalJob) -> None:
+        copied_detail = False
+        if not self._meaningful_text(keep.description) and self._meaningful_text(
+            merge.description
+        ):
+            keep.description = merge.description
+            copied_detail = True
+        if keep.salary_min is None and merge.salary_min is not None:
+            keep.salary_min = merge.salary_min
+            copied_detail = True
+        if keep.salary_max is None and merge.salary_max is not None:
+            keep.salary_max = merge.salary_max
+            keep.salary_currency = merge.salary_currency
+            copied_detail = True
+        if not keep.skills and merge.skills:
+            keep.skills = list(merge.skills)
+            copied_detail = True
+        if not keep.benefits and merge.benefits:
+            keep.benefits = list(merge.benefits)
+            copied_detail = True
+        if copied_detail and merge.details_fetched_at is not None:
+            keep.details_fetched_at = merge.details_fetched_at
+
+    def _merge_search_listings(self, keep_pk: int, merge_pk: int) -> None:
+        kept_searches = set(
+            self.session.scalars(
+                select(SearchListing.saved_search_id).where(
+                    SearchListing.canonical_job_id == keep_pk
+                )
+            )
+        )
+        for association in self.session.scalars(
+            select(SearchListing).where(SearchListing.canonical_job_id == merge_pk)
+        ):
+            if association.saved_search_id in kept_searches:
+                self.session.delete(association)
+            else:
+                association.canonical_job_id = keep_pk
+
+    def _merge_duplicate_relations(self, keep_pk: int, merge_pk: int) -> None:
+        relations = list(
+            self.session.scalars(
+                select(DuplicateRelation).where(
+                    or_(
+                        DuplicateRelation.left_job_id == merge_pk,
+                        DuplicateRelation.right_job_id == merge_pk,
+                    )
+                )
+            )
+        )
+        replacements: list[tuple[int, str, float, list[str]]] = []
+        for relation in relations:
+            other_pk = (
+                relation.right_job_id
+                if relation.left_job_id == merge_pk
+                else relation.left_job_id
+            )
+            self.session.delete(relation)
+            if other_pk != keep_pk:
+                replacements.append(
+                    (other_pk, relation.kind, relation.score, list(relation.reasons))
+                )
+        self.session.flush()
+        for other_pk, kind, score, reasons in replacements:
+            left_pk, right_pk = sorted((keep_pk, other_pk))
+            existing = self.session.scalar(
+                select(DuplicateRelation).where(
+                    DuplicateRelation.left_job_id == left_pk,
+                    DuplicateRelation.right_job_id == right_pk,
+                )
+            )
+            if existing is None:
+                self.session.add(
+                    DuplicateRelation(
+                        left_job_id=left_pk,
+                        right_job_id=right_pk,
+                        kind=kind,
+                        score=score,
+                        reasons=reasons,
+                    )
+                )
+            elif score > existing.score:
+                existing.kind = kind
+                existing.score = score
+                existing.reasons = reasons
 
     def _attached_job_pks(self, saved_search_id: str | None) -> set[int] | None:
         if saved_search_id is None:
@@ -273,29 +464,70 @@ class JobRepository:
             by_job.setdefault(job_pk, []).append(source)
         return by_job
 
-    def _duplicate_job_pks(self) -> set[int]:
+    def _confirmed_job_pks(self) -> set[int]:
+        return set(
+            self.session.scalars(
+                select(SourceListing.canonical_job_id)
+                .group_by(SourceListing.canonical_job_id)
+                .having(func.count(SourceListing.pk) > 1)
+            )
+        )
+
+    def _possible_job_pks(self) -> set[int]:
         relation_rows = self.session.execute(
-            select(DuplicateRelation.left_job_id, DuplicateRelation.right_job_id)
+            select(DuplicateRelation.left_job_id, DuplicateRelation.right_job_id).where(
+                DuplicateRelation.kind == "possible"
+            )
         )
         return {job_pk for relation in relation_rows for job_pk in relation}
 
     @staticmethod
-    def _sort(jobs: list[CanonicalJob], sort: str | None) -> None:
+    def _sort(
+        jobs: list[CanonicalJob], sort: str | None, query_key: str | None
+    ) -> None:
         sort_key = sort or "posted_at_desc"
-        if sort_key in {"posted_at_desc", "date_desc", "newest"}:
-            jobs.sort(
-                key=lambda job: (job.posted_at is not None, job.posted_at, job.pk),
-                reverse=True,
-            )
+        if sort_key in {"posted_at_desc", "date_desc", "newest", "date"}:
+            JobRepository._date_sort(jobs)
         elif sort_key in {"posted_at_asc", "date_asc", "oldest"}:
-            jobs.sort(
-                key=lambda job: (
-                    job.posted_at is None,
-                    job.posted_at or datetime.max.replace(tzinfo=None),
-                    job.pk,
-                )
+            dated = sorted(
+                (job for job in jobs if job.posted_at is not None),
+                key=lambda job: (job.posted_at, job.pk),
             )
+            undated = sorted(
+                (job for job in jobs if job.posted_at is None),
+                key=lambda job: job.pk,
+            )
+            jobs[:] = dated + undated
+        elif sort_key == "relevance":
+            JobRepository._date_sort(jobs)
+            if query_key is not None:
+                jobs.sort(
+                    key=lambda job: JobRepository._relevance_score(job, query_key),
+                    reverse=True,
+                )
         elif sort_key in {"title_asc", "title"}:
             jobs.sort(key=lambda job: (_normalise(job.title), job.pk))
         else:
             raise ValueError("Unsupported job sort")
+
+    @staticmethod
+    def _date_sort(jobs: list[CanonicalJob]) -> None:
+        dated = sorted(
+            (job for job in jobs if job.posted_at is not None),
+            key=lambda job: (job.posted_at, job.pk),
+            reverse=True,
+        )
+        undated = sorted(
+            (job for job in jobs if job.posted_at is None),
+            key=lambda job: job.pk,
+            reverse=True,
+        )
+        jobs[:] = dated + undated
+
+    @staticmethod
+    def _relevance_score(job: CanonicalJob, query_key: str) -> int:
+        return (
+            3 * _normalise(job.title).count(query_key)
+            + 2 * _normalise(job.company).count(query_key)
+            + _normalise(job.description or "").count(query_key)
+        )

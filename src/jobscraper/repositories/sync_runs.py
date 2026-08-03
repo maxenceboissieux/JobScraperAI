@@ -4,10 +4,18 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from jobscraper.db.base import utc_now
 from jobscraper.db.models import SavedSearch, SourceSyncResult, SyncRun
+
+
+class _Unset:
+    """Differentiate an omitted update field from an explicit SQL NULL."""
+
+
+UNSET = _Unset()
 
 
 class SyncRunRepository:
@@ -22,7 +30,7 @@ class SyncRunRepository:
         *,
         requested_sources: Sequence[str],
         started_at: datetime | None = None,
-        status: str = "running",
+        status: str = "pending",
     ) -> SyncRun:
         """Start and flush a run for an existing saved-search public UUID."""
 
@@ -35,7 +43,7 @@ class SyncRunRepository:
             saved_search_id=saved_search.pk,
             status=status,
             requested_sources=list(requested_sources),
-            started_at=started_at or utc_now(),
+            started_at=None if status == "pending" else started_at or utc_now(),
         )
         self.session.add(run)
         self.session.flush()
@@ -46,6 +54,20 @@ class SyncRunRepository:
 
         return self.session.scalar(select(SyncRun).where(SyncRun.id == run_id))
 
+    def mark_running(
+        self, run_id: str, *, started_at: datetime | None = None
+    ) -> SyncRun | None:
+        """Transition a pending run to running without committing the session."""
+
+        run = self.get(run_id)
+        if run is None:
+            return None
+        run.status = "running"
+        if run.started_at is None:
+            run.started_at = started_at or utc_now()
+        self.session.flush()
+        return run
+
     def record_source_result(
         self,
         run_id: str,
@@ -54,45 +76,44 @@ class SyncRunRepository:
         status: str,
         offers_seen: int | None = None,
         offers_persisted: int | None = None,
-        error_message: str | None = None,
-        started_at: datetime | None = None,
-        finished_at: datetime | None = None,
+        error_message: str | None | _Unset = UNSET,
+        started_at: datetime | None | _Unset = UNSET,
+        finished_at: datetime | None | _Unset = UNSET,
     ) -> SourceSyncResult:
         """Create or update the one result row per source within a run."""
 
         run = self.get(run_id)
         if run is None:
             raise LookupError("Synchronization run does not exist")
-        result = self.session.scalar(
-            select(SourceSyncResult).where(
-                SourceSyncResult.sync_run_id == run.pk,
-                SourceSyncResult.source == source,
-            )
-        )
+        result = self._source_result(run.pk, source)
         if result is None:
-            result = SourceSyncResult(
-                sync_run_id=run.pk,
-                source=source,
-                status=status,
-                offers_seen=offers_seen or 0,
-                offers_persisted=offers_persisted or 0,
-                error_message=error_message,
-                started_at=started_at,
-                finished_at=finished_at,
+            try:
+                with self.session.begin_nested():
+                    result = SourceSyncResult(
+                        sync_run_id=run.pk,
+                        source=source,
+                        status=status,
+                    )
+                    self.session.add(result)
+                    self.session.flush()
+            except IntegrityError:
+                result = self._source_result(run.pk, source)
+                if result is None:
+                    raise
+        self._apply_result_update(
+            result,
+            status=status,
+            offers_seen=offers_seen,
+            offers_persisted=offers_persisted,
+            error_message=error_message,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+        if status == "running":
+            self.mark_running(
+                run.id,
+                started_at=None if isinstance(started_at, _Unset) else started_at,
             )
-            self.session.add(result)
-        else:
-            result.status = status
-            if offers_seen is not None:
-                result.offers_seen = offers_seen
-            if offers_persisted is not None:
-                result.offers_persisted = offers_persisted
-            if error_message is not None:
-                result.error_message = error_message
-            if started_at is not None:
-                result.started_at = started_at
-            if finished_at is not None:
-                result.finished_at = finished_at
         self.session.flush()
         return result
 
@@ -109,6 +130,51 @@ class SyncRunRepository:
         if run is None:
             return None
         run.status = status
-        run.finished_at = finished_at or utc_now()
+        if finished_at is not None:
+            run.finished_at = finished_at
+        elif run.finished_at is None:
+            run.finished_at = utc_now()
         self.session.flush()
         return run
+
+    def _source_result(self, run_pk: int, source: str) -> SourceSyncResult | None:
+        return self.session.scalar(
+            select(SourceSyncResult).where(
+                SourceSyncResult.sync_run_id == run_pk,
+                SourceSyncResult.source == source,
+            )
+        )
+
+    @staticmethod
+    def _apply_result_update(
+        result: SourceSyncResult,
+        *,
+        status: str,
+        offers_seen: int | None,
+        offers_persisted: int | None,
+        error_message: str | None | _Unset,
+        started_at: datetime | None | _Unset,
+        finished_at: datetime | None | _Unset,
+    ) -> None:
+        result.status = status
+        if offers_seen is not None:
+            result.offers_seen = offers_seen
+        if offers_persisted is not None:
+            result.offers_persisted = offers_persisted
+        if isinstance(error_message, _Unset):
+            if status in {"pending", "running", "succeeded"}:
+                result.error_message = None
+        else:
+            result.error_message = error_message
+        if isinstance(started_at, _Unset):
+            if status == "running" and result.started_at is None:
+                result.started_at = utc_now()
+        else:
+            result.started_at = started_at
+        if isinstance(finished_at, _Unset):
+            if status in {"pending", "running"}:
+                result.finished_at = None
+            elif status == "succeeded":
+                result.finished_at = utc_now()
+        else:
+            result.finished_at = finished_at
