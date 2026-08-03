@@ -359,6 +359,76 @@ def test_chained_merge_uses_group_provenance_not_unrelated_global_cache_time(
     assert merged.details_fetched_at == NOW + timedelta(minutes=4)
 
 
+def test_legacy_provenance_survives_partial_stamp_reload_and_chained_merge(
+    session: Session,
+) -> None:
+    """Fails if a partial stamp makes an unstamped legacy group globally newest."""
+    jobs = JobRepository(session)
+    legacy = jobs.upsert_listing(
+        offer(
+            "legacy-description",
+            description="Legacy description at T2",
+            salary_min=None,
+            salary_max=None,
+        ),
+        seen_at=NOW,
+    )
+    legacy.details_fetched_at = NOW + timedelta(minutes=2)
+    session.flush()
+
+    legacy.salary_min = 80_000
+    legacy.salary_max = 100_000
+    legacy.salary_currency = "EUR"
+    jobs.stamp_detail_groups(
+        legacy.id,
+        groups=["salary"],
+        fetched_at=NOW + timedelta(minutes=4),
+    )
+    legacy_id = legacy.id
+    session.commit()
+    session.expunge_all()
+
+    reloaded = jobs.get_job(legacy_id)
+    assert reloaded is not None
+    assert reloaded.detail_provenance == {
+        "description": (NOW + timedelta(minutes=2)).isoformat(),
+        "salary": (NOW + timedelta(minutes=4)).isoformat(),
+    }
+
+    description_at_t3 = jobs.upsert_listing(
+        offer(
+            "description-at-t3",
+            source="wttj",
+            description="Description at T3",
+            salary_min=None,
+            salary_max=None,
+        ),
+        seen_at=NOW,
+    )
+    jobs.stamp_detail_groups(
+        description_at_t3.id,
+        groups=["description"],
+        fetched_at=NOW + timedelta(minutes=3),
+    )
+    jobs.merge_canonical_jobs(reloaded.id, description_at_t3.id)
+    session.commit()
+    session.expunge_all()
+
+    merged = jobs.get_job(legacy_id)
+    assert merged is not None
+    assert merged.description == "Description at T3"
+    assert (merged.salary_min, merged.salary_max, merged.salary_currency) == (
+        80_000,
+        100_000,
+        "EUR",
+    )
+    assert merged.detail_provenance == {
+        "description": (NOW + timedelta(minutes=3)).isoformat(),
+        "salary": (NOW + timedelta(minutes=4)).isoformat(),
+    }
+    assert merged.details_fetched_at == NOW + timedelta(minutes=4)
+
+
 def test_duplicate_state_distinguishes_confirmed_possible_and_none(
     session: Session,
 ) -> None:

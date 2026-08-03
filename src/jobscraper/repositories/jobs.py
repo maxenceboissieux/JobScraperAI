@@ -168,6 +168,8 @@ class JobRepository:
             if group not in self._DETAIL_GROUPS:
                 raise ValueError("Unknown detail provenance group")
             if self._has_detail_group(job, group):
+                if not provenance:
+                    provenance = self._materialize_legacy_provenance(job)
                 provenance[group] = self._serialize_timestamp(fetched_at)
         job.detail_provenance = provenance
         self._recompute_details_fetched_at(job)
@@ -382,7 +384,7 @@ class JobRepository:
         )
 
     def _preserve_detail_cache(self, keep: CanonicalJob, merge: CanonicalJob) -> None:
-        provenance = self._detail_provenance(keep)
+        provenance = self._materialize_legacy_provenance(keep)
         keep_description_at = self._group_timestamp(keep, "description")
         merge_description_at = self._group_timestamp(merge, "description")
         if self._meaningful_text(merge.description) and (
@@ -471,12 +473,30 @@ class JobRepository:
         return dict(job.detail_provenance or {})
 
     @classmethod
+    def _materialize_legacy_provenance(cls, job: CanonicalJob) -> dict[str, str]:
+        provenance = cls._detail_provenance(job)
+        legacy_timestamp = job.details_fetched_at
+        if provenance or legacy_timestamp is None:
+            return provenance
+        serialized = cls._serialize_timestamp(legacy_timestamp)
+        return {
+            group: serialized
+            for group in cls._DETAIL_GROUPS
+            if cls._has_detail_group(job, group)
+        }
+
+    @classmethod
     def _group_timestamp(cls, job: CanonicalJob, group: str) -> datetime | None:
         if not cls._has_detail_group(job, group):
             return None
-        stored = cls._detail_provenance(job).get(group)
+        provenance = cls._detail_provenance(job)
+        stored = provenance.get(group)
         parsed = cls._deserialize_timestamp(stored)
-        return parsed or job.details_fetched_at
+        if parsed is not None:
+            return parsed
+        if provenance:
+            return None
+        return job.details_fetched_at
 
     @staticmethod
     def _serialize_timestamp(timestamp: datetime) -> str:
