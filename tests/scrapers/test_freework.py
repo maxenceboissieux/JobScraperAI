@@ -103,6 +103,7 @@ def test_live_shape_search_url_enriches_after_scraper_restart(
     detailed = detail_scraper.get_job_details(stored_url)
 
     assert detailed is not None
+    assert detailed.id == jobs[0].id == "freework_659066"
     assert detailed.title == "Développeur Python confirmé"
     assert requested_urls == [stored_url]
 
@@ -171,6 +172,68 @@ def test_get_job_details_falls_back_to_focused_html_fields(monkeypatch) -> None:
     assert job.skills == ["FastAPI", "Docker"]
     assert job.benefits == ["RTT", "Mutuelle"]
     assert requested_urls == [canonical_url]
+
+
+@pytest.mark.parametrize(
+    ("canonical_url", "expected_id"),
+    [
+        (
+            (
+                "https://www.free-work.com/fr/tech-it/job-mission/"
+                "python/offre-sans-identifiant"
+            ),
+            (
+                "freework_url_"
+                "b091ee471d72b2db94c8c79303448f152d81b781c390c6d835da6290f5cd4c90"
+            ),
+        ),
+        (
+            ("https://www.free-work.com/fr/tech-it/" "offre-legacy/job-mission/54321"),
+            "freework_54321",
+        ),
+    ],
+)
+def test_detail_without_source_identifier_uses_safe_canonical_fallback(
+    canonical_url, expected_id, monkeypatch
+) -> None:
+    html = """
+    <main data-testid="job-detail">
+      <h1>Développeur Python</h1>
+      <div class="job-description">Construire des services Python.</div>
+    </main>
+    """
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+
+    job = scraper.get_job_details(canonical_url)
+
+    assert job is not None
+    assert job.id == expected_id
+
+
+def test_invalid_structured_source_identifier_uses_current_url_fallback(
+    monkeypatch,
+) -> None:
+    canonical_url = (
+        "https://www.free-work.com/fr/tech-it/job-mission/"
+        "python/offre-identifiant-invalide"
+    )
+    html = f"""
+    <script type="application/ld+json">
+      {{"@type": "JobPosting", "identifier": "../../admin",
+       "title": "Développeur Python", "url": "{canonical_url}"}}
+    </script>
+    """
+    scraper = FreeWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: html)
+
+    job = scraper.get_job_details(canonical_url)
+
+    assert job is not None
+    assert job.id == (
+        "freework_url_"
+        "1da75d99513de0a6bf155bb11dfc78e9d57f23a1bcfb927cb0e51e6583aa7ad2"
+    )
 
 
 def test_get_job_details_does_not_fetch_an_uncached_bare_id(monkeypatch) -> None:

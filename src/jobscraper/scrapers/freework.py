@@ -5,6 +5,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime, timedelta
+from hashlib import sha256
 from math import atan2, cos, radians, sin, sqrt
 from typing import Any, Dict, Iterator, Optional
 from urllib.parse import urlencode, urljoin, urlparse
@@ -35,6 +36,7 @@ class FreeWorkScraper(BaseScraper):
         re.compile(rf"/fr/tech-it/job-mission/({_path_segment})/({_path_segment})/?"),
         re.compile(rf"/fr/tech-it/({_path_segment})/job-mission/({_path_segment})/?"),
     )
+    _source_identifier_pattern = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(config)
@@ -145,12 +147,24 @@ class FreeWorkScraper(BaseScraper):
         ):
             return None
 
-        for pattern in cls._offer_path_patterns:
+        for pattern_index, pattern in enumerate(cls._offer_path_patterns):
             match = pattern.fullmatch(parsed.path)
             if match is not None:
                 path = parsed.path.rstrip("/")
-                return match.group(2), f"{cls.base_url}{path}"
+                canonical_url = f"{cls.base_url}{path}"
+                external_id = (
+                    cls._current_url_fallback_id(canonical_url)
+                    if pattern_index == 0
+                    else match.group(2)
+                )
+                return external_id, canonical_url
         return None
+
+    @staticmethod
+    def _current_url_fallback_id(canonical_url: str) -> str:
+        """Derive a collision-resistant identity when a current page has no ID."""
+        digest = sha256(canonical_url.encode("utf-8")).hexdigest()
+        return f"url_{digest}"
 
     @classmethod
     def _canonical_external_id(cls, value: str) -> Optional[str]:
@@ -173,6 +187,12 @@ class FreeWorkScraper(BaseScraper):
             structured = structured_jobs[0] if structured_jobs else {}
             structured_values = self._detail_structured_values(structured)
             html_values = self._detail_html_values(detail_container or soup)
+            source_external_id = self._external_id(structured_values.get("id"), "")
+            if source_external_id is None:
+                source_external_id = self._extract_nuxt_detail_identifier(soup)
+            if source_external_id is None:
+                source_external_id = self._external_id(html_values.get("id"), "")
+            resolved_external_id = source_external_id or external_id
 
             def prefer_structured(key: str) -> Any:
                 value = structured_values.get(key)
@@ -193,7 +213,7 @@ class FreeWorkScraper(BaseScraper):
                     detail_url = structured_target[1]
 
             return JobOffer(
-                id=f"freework_{external_id}",
+                id=f"freework_{resolved_external_id}",
                 source=self.name,
                 url=HttpUrl(detail_url),
                 title=title,
@@ -256,6 +276,7 @@ class FreeWorkScraper(BaseScraper):
         )
 
         return {
+            "id": soup.get("data-job-id") or soup.get("data-id"),
             "title": title.get_text(" ", strip=True) if title else None,
             "company": self._element_value(company, "data-company"),
             "location": self._element_value(location, "data-location"),
@@ -394,6 +415,41 @@ class FreeWorkScraper(BaseScraper):
 
         walk(payload)
         return jobs
+
+    def _extract_nuxt_detail_identifier(self, soup: BeautifulSoup) -> Optional[str]:
+        """Resolve the source ID from Nuxt's reference-encoded JobPosting."""
+        script = soup.select_one("script#__NUXT_DATA__")
+        if script is None:
+            return None
+
+        try:
+            payload = json.loads(script.string or script.get_text())
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, list):
+            return None
+
+        def resolve_scalar(reference: Any) -> Any:
+            if (
+                isinstance(reference, bool)
+                or not isinstance(reference, int)
+                or not 0 <= reference < len(payload)
+            ):
+                return None
+            value = payload[reference]
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                return None
+            return value
+
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            if resolve_scalar(item.get("@context")) != "/contexts/JobPosting":
+                continue
+            source_id = self._external_id(resolve_scalar(item.get("id")), "")
+            if source_id is not None:
+                return source_id
+        return None
 
     def _extract_json_ld_jobs(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
         """Extract JobPosting nodes from JSON-LD graphs and item lists."""
@@ -626,8 +682,8 @@ class FreeWorkScraper(BaseScraper):
                     return str(value)
         return None
 
-    @staticmethod
-    def _external_id(value: Any, url: str) -> Optional[str]:
+    @classmethod
+    def _external_id(cls, value: Any, url: str) -> Optional[str]:
         if value is not None:
             rendered = str(value).strip()
             tagged_match = re.fullmatch(r"tags-(.+)", rendered)
@@ -635,11 +691,10 @@ class FreeWorkScraper(BaseScraper):
                 rendered = tagged_match.group(1)
             if rendered.startswith("freework_"):
                 rendered = rendered.removeprefix("freework_")
-            if "/" not in rendered and rendered:
+            if cls._source_identifier_pattern.fullmatch(rendered):
                 return rendered
 
-        path = urlparse(url).path.rstrip("/")
-        return path.rsplit("/", 1)[-1] if path else None
+        return cls._canonical_external_id(url) if url else None
 
     def _parse_posted_date(self, value: Any) -> Optional[datetime]:
         if isinstance(value, datetime):

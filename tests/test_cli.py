@@ -48,6 +48,7 @@ def test_cli_details_enriches_freework_from_stored_url(runner, monkeypatch):
         location="Paris",
     )
     detail_calls = []
+    displayed_jobs = []
 
     monkeypatch.setattr(
         FreeWorkScraper,
@@ -57,9 +58,19 @@ def test_cli_details_enriches_freework_from_stored_url(runner, monkeypatch):
 
     def get_job_details(_scraper, job_url):
         detail_calls.append(job_url)
-        return search_job.model_copy(update={"description": "Détails complets"})
+        return search_job.model_copy(
+            update={
+                "id": "freework_developpeur-python-exemple",
+                "description": "Détails complets",
+            }
+        )
 
     monkeypatch.setattr(FreeWorkScraper, "get_job_details", get_job_details)
+    monkeypatch.setattr(
+        cli_module,
+        "display_jobs_table",
+        lambda jobs: displayed_jobs.extend(jobs),
+    )
 
     result = runner.invoke(
         main,
@@ -68,6 +79,8 @@ def test_cli_details_enriches_freework_from_stored_url(runner, monkeypatch):
 
     assert result.exit_code == 0
     assert detail_calls == [canonical_url]
+    assert [job.id for job in displayed_jobs] == ["freework_659066"]
+    assert displayed_jobs[0].description == "Détails complets"
 
 
 def test_cli_default_and_all_sources_include_freework(runner):

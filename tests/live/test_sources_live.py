@@ -54,5 +54,6 @@ def test_freework_search_offer_can_be_enriched_from_stored_url():
     detail = FreeWorkScraper({"delay": 1}).get_job_details(stored_url)
 
     assert detail is not None
+    assert detail.id == jobs[0].id
     assert detail.title
     assert str(detail.url).startswith("https://www.free-work.com/")

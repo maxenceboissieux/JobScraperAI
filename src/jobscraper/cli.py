@@ -317,7 +317,11 @@ def search(
                             f"{index}/{len(freework_jobs)}"
                         )
                         detailed = scraper.get_job_details(str(job.url))
-                        enriched.append(detailed if detailed else job)
+                        enriched.append(
+                            detailed.model_copy(update={"id": job.id})
+                            if detailed
+                            else job
+                        )
                 jobs = [job for job in jobs if job.source != "freework"] + enriched
 
     if not jobs:
