@@ -1,10 +1,10 @@
 # JobScraper
 
-Agrégateur d'offres d'emploi en France. Recherchez simultanément sur LinkedIn, HelloWork, France Travail, Welcome to the Jungle et Adzuna (Indeed, Monster...).
+Agrégateur d'offres d'emploi en France. Recherchez simultanément sur LinkedIn, HelloWork, France Travail, Welcome to the Jungle, Adzuna (Indeed, Monster...) et Free-Work.
 
 ## Fonctionnalités
 
-- **5 sources d'emploi** : LinkedIn, HelloWork, France Travail, WTTJ, Adzuna
+- **6 sources d'emploi** : LinkedIn, HelloWork, France Travail, WTTJ, Adzuna, Free-Work
 - **Recherche géolocalisée** : Filtrage par ville et rayon (5-100 km)
 - **Filtres avancés** : Type de contrat, expérience, télétravail, date de publication
 - **Export flexible** : JSON, CSV ou affichage tableau
@@ -17,13 +17,13 @@ Agrégateur d'offres d'emploi en France. Recherchez simultanément sur LinkedIn,
 git clone https://github.com/zeffut/jobscraper.git
 cd jobscraper
 
-# Créer un environnement virtuel
-python -m venv .venv
+# Utiliser Python 3.11 ou 3.12 et créer un environnement virtuel
+python3.12 -m venv .venv
 source .venv/bin/activate  # Linux/macOS
 # ou .venv\Scripts\activate  # Windows
 
-# Installer les dépendances
-pip install -e .
+# Installer le projet et les dépendances de développement en mode éditable
+python -m pip install -e ".[dev]"
 ```
 
 ## Configuration
@@ -42,6 +42,17 @@ Pour utiliser Adzuna (agrégateur Indeed, Monster, etc.), obtenez des clés API 
 ADZUNA_APP_ID=votre_app_id
 ADZUNA_APP_KEY=votre_app_key
 ```
+
+### Free-Work
+
+Free-Work utilise ses pages publiques et ne requiert pas de clé API. Les variables suivantes permettent de l'activer ou d'ajuster le délai entre les requêtes :
+
+```env
+FREEWORK_ENABLED=true
+FREEWORK_DELAY=2.0
+```
+
+Conservez un délai raisonnable pour les recherches habituelles afin de respecter le site source.
 
 ## Utilisation
 
@@ -74,7 +85,7 @@ Options:
   --date [past_24h|past_week|past_month|any_time]  Date de publication
   --sort [relevance|date]   Tri des résultats
   -n, --max-results INT     Nombre maximum de résultats [défaut: 50]
-  -s, --source [linkedin|hellowork|francetravail|adzuna|wttj|all]  Sources
+  -s, --source [linkedin|hellowork|francetravail|adzuna|wttj|freework|all]  Sources
   -o, --output PATH         Fichier de sortie
   --format [json|csv|table] Format de sortie [défaut: table]
   -d, --details             Récupérer les détails complets
@@ -88,6 +99,9 @@ jobscraper search -k "data engineer" -c cdi -e senior -w remote -o jobs.json
 
 # Recherche sur WTTJ uniquement
 jobscraper search -k python -l Paris -s wttj
+
+# Recherche sur Free-Work uniquement
+jobscraper search -k python -l Paris -s freework
 
 # Recherche sur toutes les sources
 jobscraper search -k développeur -l Toulouse -s all
@@ -114,6 +128,7 @@ jobscraper sources
 | France Travail | Actif | Ex Pôle Emploi |
 | WTTJ | Actif | Welcome to the Jungle (startups) |
 | Adzuna | Actif* | Agrégateur (Indeed, Monster...) |
+| Free-Work | Actif | Offres IT et missions freelance |
 
 \* Nécessite des clés API gratuites
 
@@ -132,7 +147,8 @@ jobscraper/
 │   │   ├── hellowork.py    # Scraper HelloWork
 │   │   ├── francetravail.py # Scraper France Travail
 │   │   ├── wttj.py         # Scraper WTTJ (Algolia)
-│   │   └── adzuna.py       # Client API Adzuna
+│   │   ├── adzuna.py       # Client API Adzuna
+│   │   └── freework.py     # Scraper Free-Work
 │   └── utils/
 │       └── geocoding.py    # Géocodage pour recherche par rayon
 ├── .env.example            # Template de configuration
@@ -143,16 +159,21 @@ jobscraper/
 ## Développement
 
 ```bash
-# Installer les dépendances de développement
-pip install -e ".[dev]"
+# Lancer la suite habituelle, sans accès réseau
+.venv/bin/python -m pytest -m 'not live' -v
 
-# Lancer les tests
-pytest
+# Lancer les tests live opt-in (au plus trois offres par source)
+RUN_LIVE_SCRAPER_TESTS=1 .venv/bin/python -m pytest -m live -v
+
+# Vérifier uniquement Free-Work, avec une recherche bornée
+RUN_LIVE_SCRAPER_TESTS=1 .venv/bin/python -m pytest tests/live/test_sources_live.py -k FreeWork -v
 
 # Formater le code
-black src/
-isort src/
+.venv/bin/python -m black src/
+.venv/bin/python -m isort src/
 ```
+
+Les tests live sont désactivés par défaut afin que la suite ordinaire reste déterministe et ne contacte aucune source externe. Ils utilisent le mot-clé `python`, un délai d'une seconde et `max_results=3` ; activez-les uniquement pour un contrôle opérateur ponctuel.
 
 ## Contribution
 
