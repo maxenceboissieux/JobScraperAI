@@ -155,6 +155,9 @@ def _location_evidence_key(raw_location: str) -> str:
     mixed label remains unknown rather than becoming an invented city key.
     """
 
+    if _is_remote_descriptor(raw_location):
+        return ""
+
     clauses = [
         clause.strip()
         for clause in _LOCATION_CLAUSE_SEPARATOR.split(raw_location)
@@ -170,9 +173,6 @@ def _location_evidence_key(raw_location: str) -> str:
     tokens = location.split()
     if not _has_remote_qualifier(tokens):
         return location
-    if _is_remote_descriptor(raw_location):
-        return ""
-
     match = _REMOTE_PREFIX.fullmatch(raw_location.strip()) or _REMOTE_SUFFIX.fullmatch(
         raw_location.strip()
     )

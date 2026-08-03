@@ -179,6 +179,8 @@ def test_company_with_a_trailing_long_legal_form_remains_explicit() -> None:
         "100% télétravail",
         "À distance",
         "Hybride 2 jours par semaine",
+        "Hybride 2 jours/semaine",
+        "Télétravail 2 jours/semaine",
         "National",
         "Nationale",
         "Île-de-France",
@@ -216,6 +218,8 @@ def test_unknown_location_can_only_support_a_thresholded_possible_match() -> Non
         "Full remote",
         "Télétravail partiel",
         "Hybride 2 jours par semaine",
+        "Hybride 2 jours/semaine",
+        "Télétravail 2 jours/semaine",
         "Remote Europe",
     ],
 )
