@@ -11,8 +11,19 @@ _SEPARATED_DEPARTMENT = re.compile(
     r"\s*(?:,|-)\s*(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])\s*$"
 )
 _DEPARTMENT_TOKEN = re.compile(r"^(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])$")
+_EXACT_FRANCE = re.compile(r"^\s*france\s*$")
+_TRAILING_FRANCE_QUALIFIER = re.compile(
+    r"(?:\s*,\s*france|\s+-\s+france|\s*\(\s*france\s*\))\s*$"
+)
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 _LEGAL_SUFFIXES = (
+    ("entreprise", "unipersonnelle", "a", "responsabilite", "limitee"),
+    ("societe", "par", "actions", "simplifiee"),
+    ("societe", "a", "responsabilite", "limitee"),
+    ("societe", "en", "commandite", "simple"),
+    ("societe", "civile", "immobiliere"),
+    ("societe", "en", "nom", "collectif"),
+    ("societe", "anonyme"),
     ("s", "a", "r", "l", "u"),
     ("s", "a", "s", "u"),
     ("e", "u", "r", "l"),
@@ -40,7 +51,6 @@ _LEGAL_SUFFIXES = (
     ("b", "v"),
     ("g", "m", "b", "h"),
 )
-_COUNTRY_SUFFIXES = (("france", "metropolitaine"), ("france",))
 
 
 def normalize_text(value: str) -> str:
@@ -73,27 +83,17 @@ def normalize_company(value: str) -> str:
 def normalize_location(value: str) -> str:
     """Normalize a location without collapsing distinct city names.
 
-    France is commonly appended by sources to a city label.  It is safe to
-    remove only as a trailing country qualifier; city tokens stay untouched.
+    France is removed only when it is a separately-delimited city qualifier.
+    Hyphenated region names such as ``Île-de-France`` keep their country token.
     """
 
-    tokens = normalize_text(value).split()
-    while tokens:
-        country_suffix = next(
-            (
-                suffix
-                for suffix in _COUNTRY_SUFFIXES
-                if len(tokens) >= len(suffix)
-                and tuple(tokens[-len(suffix) :]) == suffix
-            ),
-            None,
-        )
-        if country_suffix is not None:
-            tokens = tokens[: -len(country_suffix)]
-        elif _DEPARTMENT_TOKEN.fullmatch(tokens[-1]) is not None:
-            tokens.pop()
-        else:
-            break
+    ascii_value = _ascii_casefold(value).strip()
+    if _EXACT_FRANCE.fullmatch(ascii_value):
+        return "france"
+    without_country_qualifier = _TRAILING_FRANCE_QUALIFIER.sub("", ascii_value)
+    tokens = normalize_text(without_country_qualifier).split()
+    while tokens and _DEPARTMENT_TOKEN.fullmatch(tokens[-1]) is not None:
+        tokens.pop()
     return " ".join(tokens)
 
 

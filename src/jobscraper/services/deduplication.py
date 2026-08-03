@@ -1,5 +1,6 @@
 """Deterministic duplicate classification for canonical job-shaped objects."""
 
+import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Literal, Protocol
@@ -130,19 +131,22 @@ def _locations_compatible(left: str, right: str) -> bool:
 
 
 def _is_explicit_company(company: str) -> bool:
-    return bool(company) and company not in _UNKNOWN_COMPANY_KEYS
+    return bool(company) and _NON_EXPLICIT_COMPANY.fullmatch(company) is None
 
 
 def _is_explicit_location(location: str) -> bool:
     return (
         bool(location)
         and not _is_unknown_location(location)
+        and location not in _COUNTRY_LOCATION_KEYS
         and location not in _REGION_LOCATION_KEYS
     )
 
 
 def _is_unknown_location(location: str) -> bool:
-    return location in _UNKNOWN_LOCATION_KEYS
+    return bool(
+        _UNKNOWN_LOCATION.fullmatch(location) or _REMOTE_LOCATION.search(location)
+    )
 
 
 def _seniority(job: JobLike) -> str | None:
@@ -168,38 +172,44 @@ def _seniority(job: JobLike) -> str | None:
     return max(levels, key=_SENIORITY_RANK.__getitem__) if levels else None
 
 
-_UNKNOWN_COMPANY_KEYS = frozenset(
-    {
-        "",
-        "entreprise confidentielle",
-        "confidentiel",
-        "inconnu",
-        "n a",
-        "non communique",
-        "non renseigne",
-        "non specifie",
-        "not specified",
-        "unknown",
-    }
+_NON_EXPLICIT_COMPANY = re.compile(
+    r"^(?:"
+    r"n\s*[ac]|"
+    r"(?:non|pas)\s+(?:communique(?:e)?|precis(?:e|ee)?|"
+    r"renseigne(?:e)?|specifie(?:e)?)|"
+    r"(?:entreprise|societe)?\s*confidentiel(?:le)?|"
+    r"(?:entreprise|societe)?\s*(?:generique|generic)|"
+    r"(?:company|entreprise|societe|employer|employeur)|"
+    r"inconnu(?:e)?|unknown|not\s+specified"
+    r")$"
 )
-_UNKNOWN_LOCATION_KEYS = frozenset(
+_UNKNOWN_LOCATION = re.compile(
+    r"^(?:"
+    r"n\s*[ac]|"
+    r"(?:non|pas)\s+(?:communique(?:e)?|precis(?:e|ee)?|"
+    r"renseigne(?:e)?|specifie(?:e)?)|"
+    r"(?:france\s+)?entiere|"
+    r"inconnu(?:e)?|unknown|not\s+specified"
+    r")$"
+)
+_REMOTE_LOCATION = re.compile(
+    r"(?:^|\s)(?:a\s+distance|hybrid|hybride|remote|teletravail)(?:\s|$)"
+)
+_COUNTRY_LOCATION_KEYS = frozenset(
     {
-        "",
-        "a distance",
-        "france entiere",
-        "hybrid",
-        "hybride",
-        "inconnu",
-        "n a",
-        "national",
-        "nationale",
-        "non communique",
-        "non renseigne",
-        "non specifie",
-        "not specified",
-        "remote",
-        "teletravail",
-        "unknown",
+        "allemagne",
+        "autriche",
+        "belgique",
+        "danemark",
+        "espagne",
+        "france",
+        "irlande",
+        "italie",
+        "luxembourg",
+        "pays bas",
+        "portugal",
+        "royaume uni",
+        "suisse",
     }
 )
 _REGION_LOCATION_KEYS = frozenset(

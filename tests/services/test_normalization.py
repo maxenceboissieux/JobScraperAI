@@ -37,6 +37,8 @@ def test_normalize_company_removes_only_trailing_legal_suffixes() -> None:
 
     assert normalize_company("SAS Institute S.A.S.") == "sas institute"
     assert normalize_company("Acme SAS") == "acme"
+    assert normalize_company("Acme Société Anonyme") == "acme"
+    assert normalize_company("Société Anonyme") == ""
 
 
 def test_normalize_location_removes_department_suffix_without_merging_cities() -> None:
@@ -47,3 +49,21 @@ def test_normalize_location_removes_department_suffix_without_merging_cities() -
     assert normalize_location("Saint-Denis") != normalize_location(
         "Saint-Denis-sur-Loire"
     )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Paris, France", "paris"),
+        ("Paris (France)", "paris"),
+        ("France", "france"),
+        ("Île-de-France", "ile de france"),
+        ("Hauts-de-France", "hauts de france"),
+    ],
+)
+def test_normalize_location_preserves_hyphenated_regions_and_strips_qualifiers(
+    value: str, expected: str
+) -> None:
+    """Fails if country cleanup erases region names or leaves delimiters behind."""
+
+    assert normalize_location(value) == expected

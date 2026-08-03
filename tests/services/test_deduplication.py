@@ -126,7 +126,18 @@ def test_incompatible_explicit_seniority_forces_no_match() -> None:
 
 
 @pytest.mark.parametrize(
-    "company", ["Non spécifié", "Entreprise confidentielle", "SAS"]
+    "company",
+    [
+        "Non spécifié",
+        "Non précisé",
+        "Non renseignée",
+        "Non communiquée",
+        "Entreprise confidentielle",
+        "N/C",
+        "SAS",
+        "Société Anonyme",
+        "Company",
+    ],
 )
 def test_unknown_or_legal_only_company_never_classifies_duplicates(
     company: str,
@@ -141,7 +152,33 @@ def test_unknown_or_legal_only_company_never_classifies_duplicates(
     assert classify_duplicate(right, left) == expected
 
 
-@pytest.mark.parametrize("location", ["France", "Télétravail"])
+def test_company_with_a_trailing_long_legal_form_remains_explicit() -> None:
+    """Fails if legal-form cleanup discards a meaningful company name."""
+
+    left = Job("Développeur Python", "Acme Société Anonyme", "Paris")
+    right = Job("Développeur Python", "ACME", "Paris")
+
+    expected = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "France",
+        "Belgique",
+        "Télétravail",
+        "Full remote",
+        "100% télétravail",
+        "À distance",
+        "Île-de-France",
+    ],
+)
 def test_unknown_location_cannot_confirm_an_exact_title(location: str) -> None:
     """Fails if a country-level placeholder is treated as an explicit city."""
 
@@ -163,6 +200,34 @@ def test_unknown_location_can_only_support_a_thresholded_possible_match() -> Non
         "possible",
         pytest.approx(0.8181818181818182),
         ("entreprise_identique", "lieu_compatible", "titre_proche"),
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_embedded_remote_marker_can_only_support_a_possible_match() -> None:
+    """Fails if full-remote labels are mistaken for an explicit city."""
+
+    left = Job("Développeur Python", "Acme", "Full remote")
+    right = Job("Développeur Python Backend", "ACME", "Paris")
+
+    expected = DuplicateDecision(
+        "possible",
+        pytest.approx(0.8181818181818182),
+        ("entreprise_identique", "lieu_compatible", "titre_proche"),
+    )
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+def test_different_country_labels_are_not_location_compatible() -> None:
+    """Fails if two country-level labels can form a cross-country candidate."""
+
+    left = Job("Développeur Python", "Acme", "France")
+    right = Job("Développeur Python Backend", "ACME", "Belgique")
+
+    expected = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("lieux_incompatibles",)
     )
     assert classify_duplicate(left, right) == expected
     assert classify_duplicate(right, left) == expected
