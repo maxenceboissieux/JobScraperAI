@@ -173,9 +173,12 @@ def test_company_with_a_trailing_long_legal_form_remains_explicit() -> None:
         "France",
         "Belgique",
         "Télétravail",
+        "Télétravail partiel",
         "Full remote",
+        "Remote Europe",
         "100% télétravail",
         "À distance",
+        "Hybride 2 jours par semaine",
         "National",
         "Nationale",
         "Île-de-France",
@@ -207,10 +210,21 @@ def test_unknown_location_can_only_support_a_thresholded_possible_match() -> Non
     assert classify_duplicate(right, left) == expected
 
 
-def test_embedded_remote_marker_can_only_support_a_possible_match() -> None:
-    """Fails if full-remote labels are mistaken for an explicit city."""
+@pytest.mark.parametrize(
+    "remote_location",
+    [
+        "Full remote",
+        "Télétravail partiel",
+        "Hybride 2 jours par semaine",
+        "Remote Europe",
+    ],
+)
+def test_embedded_remote_marker_can_only_support_a_possible_match(
+    remote_location: str,
+) -> None:
+    """Fails if remote-only labels are mistaken for an explicit city."""
 
-    left = Job("Développeur Python", "Acme", "Full remote")
+    left = Job("Développeur Python", "Acme", remote_location)
     right = Job("Développeur Python Backend", "ACME", "Paris")
 
     expected = DuplicateDecision(
@@ -248,6 +262,113 @@ def test_city_with_remote_qualifier_vetoes_a_different_explicit_city() -> None:
     )
     assert classify_duplicate(left, right) == expected
     assert classify_duplicate(right, left) == expected
+
+
+@pytest.mark.parametrize(
+    "qualified_location",
+    [
+        "Paris / télétravail",
+        "Paris | Full remote",
+        "Paris ; hybride 2 jours par semaine",
+        "Paris (télétravail partiel)",
+        "Paris - remote",
+        "Paris – à distance",
+        "Paris télétravail",
+        "Remote Paris",
+        "Paris hybride 2 jours par semaine",
+        "Hybride 2 jours par semaine Paris",
+    ],
+)
+def test_structural_and_bounded_remote_qualifiers_retain_paris_evidence(
+    qualified_location: str,
+) -> None:
+    """Fails if a safely bounded remote clause hides or pollutes Paris."""
+
+    qualified = Job("Développeur Python", "Acme", qualified_location)
+    paris = Job("Développeur Python", "ACME", "Paris")
+    lyon = Job("Développeur Python Backend", "ACME", "Lyon")
+
+    confirmed = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    vetoed = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("villes_incompatibles",)
+    )
+    assert classify_duplicate(qualified, paris) == confirmed
+    assert classify_duplicate(paris, qualified) == confirmed
+    assert classify_duplicate(qualified, lyon) == vetoed
+    assert classify_duplicate(lyon, qualified) == vetoed
+
+
+def test_internal_place_hyphens_survive_remote_clause_parsing() -> None:
+    """Fails if descriptor cleanup removes words inside a hyphenated city name."""
+
+    qualified = Job("Développeur Python", "Acme", "Châlons-en-Champagne / télétravail")
+    same_city = Job("Développeur Python", "ACME", "Châlons-en-Champagne")
+    other_city = Job("Développeur Python Backend", "ACME", "Châlons-sur-Marne")
+
+    confirmed = DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    vetoed = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("villes_incompatibles",)
+    )
+    assert classify_duplicate(qualified, same_city) == confirmed
+    assert classify_duplicate(same_city, qualified) == confirmed
+    assert classify_duplicate(qualified, other_city) == vetoed
+    assert classify_duplicate(other_city, qualified) == vetoed
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "Paris remote Europe",
+        "Paris / Lyon / télétravail",
+        "Remote-sur-Mer",
+    ],
+)
+def test_ambiguous_remote_labels_fail_closed_without_inventing_a_city(
+    location: str,
+) -> None:
+    """Fails if an uncertain mixed label becomes explicit place evidence."""
+
+    left = Job("Développeur Python", "Acme", location)
+    right = Job("Développeur Python", "ACME", location)
+
+    expected = DuplicateDecision("none", 1.0, ("lieu_non_explicite",))
+    assert classify_duplicate(left, right) == expected
+    assert classify_duplicate(right, left) == expected
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "Remotely",
+        "Hybrideville",
+        "Télétravailleur-sur-Loire",
+    ],
+)
+def test_near_remote_words_remain_explicit_place_labels(location: str) -> None:
+    """Fails if substring matching turns a near-marker place into remote-only."""
+
+    left = Job("Développeur Python", "Acme", location)
+    same = Job("Développeur Python", "ACME", location)
+    different = Job("Développeur Python Backend", "ACME", "Paris")
+
+    assert classify_duplicate(left, same) == DuplicateDecision(
+        "confirmed",
+        1.0,
+        ("entreprise_identique", "lieu_identique", "titre_confirme"),
+    )
+    vetoed = DuplicateDecision(
+        "none", pytest.approx(0.8181818181818182), ("villes_incompatibles",)
+    )
+    assert classify_duplicate(left, different) == vetoed
+    assert classify_duplicate(different, left) == vetoed
 
 
 def test_different_country_labels_are_not_location_compatible() -> None:

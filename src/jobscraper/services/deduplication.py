@@ -60,8 +60,8 @@ def classify_duplicate(left: JobLike, right: JobLike) -> DuplicateDecision:
     ):
         return DuplicateDecision("none", score, ("seniorite_incompatible",))
 
-    left_location = _location_evidence_key(normalize_location(left.location))
-    right_location = _location_evidence_key(normalize_location(right.location))
+    left_location = _location_evidence_key(left.location)
+    right_location = _location_evidence_key(right.location)
     left_location_is_explicit = _is_explicit_location(left_location)
     right_location_is_explicit = _is_explicit_location(right_location)
     if (
@@ -147,18 +147,72 @@ def _is_unknown_location(location: str) -> bool:
     return not location or _UNKNOWN_LOCATION.fullmatch(location) is not None
 
 
-def _location_evidence_key(location: str) -> str:
-    """Remove remote-only qualifiers while retaining every place token.
+def _location_evidence_key(raw_location: str) -> str:
+    """Extract conservative place evidence without rewriting place tokens.
 
-    A bare ``Full remote`` label becomes empty and therefore non-explicit.  In
-    contrast, ``Paris / télétravail`` becomes ``paris``: the remote qualifier
-    cannot hide a city that must still agree with the other listing.
+    Remote clauses are discarded only across explicit separators.  An
+    undelimited qualifier is removed only at a bounded edge; an ambiguous
+    mixed label remains unknown rather than becoming an invented city key.
     """
 
+    clauses = [
+        clause.strip()
+        for clause in _LOCATION_CLAUSE_SEPARATOR.split(raw_location)
+        if clause.strip()
+    ]
+    remote_clauses = [clause for clause in clauses if _is_remote_descriptor(clause)]
+    if remote_clauses:
+        return _place_key_from_clauses(
+            [clause for clause in clauses if not _is_remote_descriptor(clause)]
+        )
+
+    location = normalize_location(raw_location)
     tokens = location.split()
     if not _has_remote_qualifier(tokens):
         return location
-    return " ".join(token for token in tokens if token not in _REMOTE_FILLER_TOKENS)
+    if _is_remote_descriptor(raw_location):
+        return ""
+
+    match = _REMOTE_PREFIX.fullmatch(raw_location.strip()) or _REMOTE_SUFFIX.fullmatch(
+        raw_location.strip()
+    )
+    if match is None:
+        return ""
+    place = normalize_location(match.group("place"))
+    if not _is_safe_bounded_place(place):
+        return ""
+    return place
+
+
+def _place_key_from_clauses(clauses: list[str]) -> str:
+    place_keys: list[str] = []
+    for clause in clauses:
+        key = normalize_location(clause)
+        if not key or _DEPARTMENT_CLAUSE.fullmatch(key) is not None:
+            continue
+        if key in _COUNTRY_LOCATION_KEYS:
+            continue
+        place_keys.append(key)
+    if len(place_keys) != 1:
+        return ""
+    return place_keys[0]
+
+
+def _is_remote_descriptor(value: str) -> bool:
+    tokens = normalize_location(value).split()
+    return _has_remote_qualifier(tokens) and all(
+        token.isdigit() or token in _REMOTE_DESCRIPTOR_TOKENS for token in tokens
+    )
+
+
+def _is_safe_bounded_place(place: str) -> bool:
+    return bool(place) and not (
+        _has_remote_qualifier(place.split())
+        or _is_unknown_location(place)
+        or place in _COUNTRY_LOCATION_KEYS
+        or place in _REGION_LOCATION_KEYS
+        or place in _REMOTE_SCOPE_KEYS
+    )
 
 
 def _has_remote_qualifier(tokens: list[str]) -> bool:
@@ -212,19 +266,57 @@ _UNKNOWN_LOCATION = re.compile(
     r")$"
 )
 _REMOTE_MARKER_TOKENS = frozenset({"hybrid", "hybride", "remote", "teletravail"})
-_REMOTE_FILLER_TOKENS = frozenset(
+_REMOTE_DESCRIPTOR_TOKENS = frozenset(
     {
+        "100",
         "a",
+        "complet",
+        "complete",
         "distance",
         "en",
+        "europe",
+        "flexible",
         "full",
         "hybrid",
         "hybride",
+        "jour",
+        "jours",
+        "monde",
         "pourcent",
+        "par",
+        "partiel",
+        "partielle",
+        "possible",
         "remote",
+        "semaine",
         "teletravail",
-        "100",
+        "total",
+        "totale",
+        "worldwide",
     }
+)
+_REMOTE_SCOPE_KEYS = frozenset({"europe", "international", "monde", "worldwide"})
+_LOCATION_CLAUSE_SEPARATOR = re.compile(r"\s*(?:[/|;()]|\s[-–—]\s)\s*")
+_DEPARTMENT_CLAUSE = re.compile(r"(?:0?[1-9]|[1-9][0-9]|2[ab]|97[1-6])")
+_REMOTE_PREFIX = re.compile(
+    r"^(?:"
+    r"(?:en\s+)?(?:full\s+)?remote|"
+    r"(?:en\s+)?t[eé]l[eé]travail(?:\s+(?:partiel|partielle))?|"
+    r"(?:en\s+)?(?:hybrid|hybride)"
+    r"(?:\s+\d+\s+jours?(?:\s+par\s+semaine)?)?|"
+    r"[aà]\s+distance"
+    r")\s+(?P<place>.+)$",
+    re.IGNORECASE,
+)
+_REMOTE_SUFFIX = re.compile(
+    r"^(?P<place>.+?)\s+(?:"
+    r"(?:en\s+)?(?:full\s+)?remote|"
+    r"(?:en\s+)?t[eé]l[eé]travail(?:\s+(?:partiel|partielle))?|"
+    r"(?:en\s+)?(?:hybrid|hybride)"
+    r"(?:\s+\d+\s+jours?(?:\s+par\s+semaine)?)?|"
+    r"[aà]\s+distance"
+    r")$",
+    re.IGNORECASE,
 )
 _COUNTRY_LOCATION_KEYS = frozenset(
     {
