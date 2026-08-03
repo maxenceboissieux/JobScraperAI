@@ -364,6 +364,27 @@ class LinkedInScraper(BaseScraper):
             # Date de publication
             posted_at = self._parse_posted_date(card)
 
+            # Type de contrat quand il est exposé dans la carte publique
+            contract_type = None
+            contract_elem = card.select_one(
+                "span.job-search-card__employment-type, "
+                "span.job-card-container__employment-type"
+            )
+            if contract_elem:
+                contract_text = contract_elem.get_text(strip=True).upper()
+                if "CDI" in contract_text or "FULL-TIME" in contract_text:
+                    contract_type = ContractType.CDI
+                elif "CDD" in contract_text or "CONTRACT" in contract_text:
+                    contract_type = ContractType.CDD
+                elif "INTERIM" in contract_text or "TEMPORARY" in contract_text:
+                    contract_type = ContractType.INTERIM
+                elif "STAGE" in contract_text or "INTERNSHIP" in contract_text:
+                    contract_type = ContractType.STAGE
+                elif "ALTERNANCE" in contract_text or "APPRENTICESHIP" in contract_text:
+                    contract_type = ContractType.ALTERNANCE
+                elif "FREELANCE" in contract_text:
+                    contract_type = ContractType.FREELANCE
+
             return JobOffer(
                 id=f"linkedin_{job_id}",
                 source=self.name,
@@ -371,6 +392,7 @@ class LinkedInScraper(BaseScraper):
                 title=title,
                 company=company,
                 location=location or "France",
+                contract_type=contract_type,
                 posted_at=posted_at,
             )
 

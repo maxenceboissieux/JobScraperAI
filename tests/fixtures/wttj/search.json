@@ -1,0 +1,14 @@
+{
+  "reference": "40004",
+  "name": "Développeur Python",
+  "organization": {
+    "name": "Exemple Conseil",
+    "slug": "exemple-conseil"
+  },
+  "offices": [{"city": "Paris", "country": "France"}],
+  "slug": "developpeur-python",
+  "summary": "Construisez des services Python fiables.",
+  "contract_type": "full_time",
+  "remote": "partial",
+  "published_at": "2026-08-01T11:00:00Z"
+}

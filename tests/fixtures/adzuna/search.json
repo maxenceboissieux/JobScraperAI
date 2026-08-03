@@ -1,0 +1,10 @@
+{
+  "id": "50005",
+  "title": "Développeur Python",
+  "company": {"display_name": "Exemple Conseil"},
+  "location": {"display_name": "Paris"},
+  "redirect_url": "https://www.adzuna.fr/details/50005",
+  "description": "Construisez des services Python fiables.",
+  "contract_type": "permanent",
+  "created": "2026-08-01T12:00:00Z"
+}

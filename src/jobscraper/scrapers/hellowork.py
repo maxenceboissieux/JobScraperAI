@@ -299,11 +299,7 @@ class HelloWorkScraper(BaseScraper):
                     salary_text = text
 
             # Date de publication
-            date_elem = card.select_one("div.tw-text-grey-500, span.tw-text-grey-500")
-            posted_at = None
-            if date_elem:
-                date_text = date_elem.get_text(strip=True)
-                posted_at = self._parse_relative_date(date_text)
+            posted_at = self._parse_posted_date(card)
 
             # Validation minimale
             if not title:
