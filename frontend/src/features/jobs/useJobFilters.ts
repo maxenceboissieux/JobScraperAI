@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import type { JobFilters } from "../../api/types";
 
@@ -245,10 +245,11 @@ function countActiveFilters(parsed: ParsedFilters): number {
 }
 
 export function useJobFilters() {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [offset, setOffsetState] = useState(0);
   const searchParamsRef = useRef(searchParams);
   const rawSearch = searchParams.toString();
+  const navigationIdentity = `${location.key}:${rawSearch}`;
   const parsed = useMemo(() => parseFilters(searchParams), [rawSearch]);
   const [queryDraft, setQueryDraftState] = useState(parsed.query ?? "");
   const queryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -257,7 +258,8 @@ export function useJobFilters() {
     [parsed, rawSearch],
   );
   const signature = filterSignature(parsed);
-  const previousSignature = useRef(signature);
+  const [pagination, setPagination] = useState(() => ({ signature, offset: 0 }));
+  const offset = pagination.signature === signature ? pagination.offset : 0;
   searchParamsRef.current = searchParams;
 
   useEffect(() => {
@@ -267,25 +269,25 @@ export function useJobFilters() {
   }, [canonical, rawSearch, setSearchParams]);
 
   useEffect(() => {
-    if (previousSignature.current !== signature) {
-      setOffsetState(0);
-      previousSignature.current = signature;
+    if (pagination.signature !== signature) {
+      setPagination({ signature, offset: 0 });
     }
-  }, [signature]);
+  }, [pagination.signature, signature]);
 
   const setFilter = useCallback(
-    <K extends keyof JobFilterValues>(key: K, value: JobFilterValues[K]) => {
+    <K extends keyof JobFilterValues>(
+      key: K,
+      value: JobFilterValues[K],
+      options?: { replace?: boolean },
+    ) => {
       const currentParams = searchParamsRef.current;
       const currentParsed = parseFilters(currentParams);
       const nextSource = canonicalParams(currentParams, currentParsed);
       writeFilter(nextSource, key, value);
       const nextParsed = parseFilters(nextSource);
       const next = canonicalParams(nextSource, nextParsed);
-      if (filterSignature(currentParsed) !== filterSignature(nextParsed)) {
-        setOffsetState(0);
-      }
       if (next.toString() !== canonicalParams(currentParams, currentParsed).toString()) {
-        setSearchParams(next);
+        setSearchParams(next, { replace: options?.replace });
       }
     },
     [setSearchParams],
@@ -305,9 +307,6 @@ export function useJobFilters() {
       period: currentParsed.period,
       sort: "date",
     });
-    if (filterSignature(currentParsed) !== filterSignature(parseFilters(next))) {
-      setOffsetState(0);
-    }
     if (next.toString() !== canonicalParams(searchParams, currentParsed).toString()) {
       setSearchParams(next);
     }
@@ -330,7 +329,7 @@ export function useJobFilters() {
         queryTimer.current = null;
       }
     };
-  }, [parsed.query]);
+  }, [navigationIdentity, parsed.query]);
 
   const setQueryDraft = useCallback(
     (value: string) => {
@@ -342,7 +341,7 @@ export function useJobFilters() {
         queryTimer.current = null;
         const normalized = value.trim();
         setQueryDraftState(normalized);
-        setFilter("query", normalized || undefined);
+        setFilter("query", normalized || undefined, { replace: true });
       }, 250);
     },
     [setFilter],
@@ -356,6 +355,10 @@ export function useJobFilters() {
     queryDraft,
     setQueryDraft,
     setOffset: (nextOffset: number) =>
-      setOffsetState(Number.isSafeInteger(nextOffset) && nextOffset >= 0 ? nextOffset : 0),
+      setPagination({
+        signature,
+        offset:
+          Number.isSafeInteger(nextOffset) && nextOffset >= 0 ? nextOffset : 0,
+      }),
   };
 }

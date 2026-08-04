@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, useNavigate } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import type { SavedSearch } from "../../api/types";
@@ -12,6 +12,48 @@ import { server } from "../../test/server";
 import { useJobFilters } from "./useJobFilters";
 
 const origin = "http://localhost:3000";
+const observedFilterRenders: Array<{
+  savedSearchId?: string;
+  sources?: string[];
+  offset: number;
+}> = [];
+
+function installViewport(initialDesktop: boolean) {
+  const original = Object.getOwnPropertyDescriptor(window, "matchMedia");
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const mediaQuery = {
+    matches: initialDesktop,
+    media: "(min-width: 768px)",
+    onchange: null,
+    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) =>
+      listeners.add(listener),
+    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) =>
+      listeners.delete(listener),
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => true,
+  };
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => mediaQuery),
+  });
+
+  return {
+    resize(desktop: boolean) {
+      mediaQuery.matches = desktop;
+      const event = { matches: desktop, media: mediaQuery.media } as MediaQueryListEvent;
+      listeners.forEach((listener) => listener(event));
+    },
+    restore() {
+      if (original === undefined) {
+        delete (window as Partial<Window>).matchMedia;
+      } else {
+        Object.defineProperty(window, "matchMedia", original);
+      }
+    },
+  };
+}
 
 const savedSearch: SavedSearch = {
   id: "recherche-1",
@@ -33,6 +75,7 @@ const savedSearch: SavedSearch = {
 };
 
 function FilterHarness() {
+  const navigate = useNavigate();
   const {
     filters,
     activeCount,
@@ -42,6 +85,13 @@ function FilterHarness() {
     queryDraft,
     setQueryDraft,
   } = useJobFilters();
+  observedFilterRenders.push({
+    ...(filters.savedSearchId === undefined
+      ? {}
+      : { savedSearchId: filters.savedSearchId }),
+    ...(filters.sources === undefined ? {} : { sources: filters.sources }),
+    offset: filters.offset ?? 0,
+  });
 
   return (
     <>
@@ -65,6 +115,12 @@ function FilterHarness() {
       </button>
       <button type="button" onClick={() => setFilter("sources", ["linkedin"])}>
         LinkedIn seulement
+      </button>
+      <button type="button" onClick={() => navigate(-1)}>
+        Retour historique
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        Avance historique
       </button>
     </>
   );
@@ -211,6 +267,45 @@ describe("filtres d’offres pilotés par l’URL", () => {
     expect(renderedFilters().offset).toBe(0);
   });
 
+  it("n’expose jamais l’ancien offset pendant une navigation ou un changement de recherche", async () => {
+    renderFilters("/?search=recherche-1&period=3d&source=freework");
+    fireEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    expect(renderedFilters().offset).toBe(48);
+
+    observedFilterRenders.length = 0;
+    act(() => {
+      window.history.pushState(
+        {},
+        "",
+        "/?search=recherche-2&period=3d&source=linkedin",
+      );
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(
+      observedFilterRenders.find(
+        (entry) =>
+          entry.savedSearchId === "recherche-2" &&
+          entry.sources?.[0] === "linkedin",
+      )?.offset,
+    ).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    observedFilterRenders.length = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Retour historique" }));
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("search")).toBe(
+        "recherche-1",
+      ),
+    );
+    expect(
+      observedFilterRenders.find(
+        (entry) =>
+          entry.savedSearchId === "recherche-1" &&
+          entry.sources?.[0] === "freework",
+      )?.offset,
+    ).toBe(0);
+  });
+
   it("attend 250 ms avant d’écrire la recherche libre dans l’URL", async () => {
     vi.useFakeTimers();
     try {
@@ -223,6 +318,28 @@ describe("filtres d’offres pilotés par l’URL", () => {
       expect(new URLSearchParams(window.location.search).get("q")).toBe("python");
       act(() => vi.advanceTimersByTime(1));
       expect(new URLSearchParams(window.location.search).get("q")).toBe("rust");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("regroupe les recherches différées dans l’entrée d’historique courante", () => {
+    vi.useFakeTimers();
+    try {
+      const historyLength = window.history.length;
+      renderFilters("/?period=3d&q=python");
+
+      fireEvent.change(screen.getByLabelText("Recherche libre"), {
+        target: { value: "pyth" },
+      });
+      act(() => vi.advanceTimersByTime(250));
+      fireEvent.change(screen.getByLabelText("Recherche libre"), {
+        target: { value: "python react" },
+      });
+      act(() => vi.advanceTimersByTime(250));
+
+      expect(new URLSearchParams(window.location.search).get("q")).toBe("python react");
+      expect(window.history.length).toBe(historyLength);
     } finally {
       vi.useRealTimers();
     }
@@ -276,9 +393,62 @@ describe("filtres d’offres pilotés par l’URL", () => {
     }
   });
 
+  it("annule le debounce lors d’un retour dont q est inchangé et préserve l’entrée suivante", async () => {
+    renderFilters("/?period=3d&q=python&source=freework");
+    fireEvent.click(screen.getByRole("button", { name: "LinkedIn seulement" }));
+    expect(new URLSearchParams(window.location.search).get("source")).toBe("linkedin");
+
+    fireEvent.change(screen.getByLabelText("Recherche libre"), {
+      target: { value: "rust" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Retour historique" }));
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("source")).toBe("freework"),
+    );
+
+    await new Promise((resolve) => window.setTimeout(resolve, 275));
+    expect(new URLSearchParams(window.location.search).get("q")).toBe("python");
+    expect(screen.getByLabelText("Recherche libre")).toHaveValue("python");
+
+    fireEvent.click(screen.getByRole("button", { name: "Avance historique" }));
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("source")).toBe("linkedin"),
+    );
+    expect(new URLSearchParams(window.location.search).get("q")).toBe("python");
+  });
+
 });
 
 describe("barre de filtres française", () => {
+  it("affiche réellement la barre au bureau et conserve un état mobile cohérent", async () => {
+    const viewport = installViewport(true);
+    try {
+      const { user } = renderApplication("/?period=3d&source=freework");
+      await screen.findByRole("combobox", { name: "Recherche enregistrée" });
+
+      const disclosure = screen.getByRole("button", {
+        name: "Masquer les filtres, 1 actif",
+      });
+      const details = disclosure.closest("details");
+      expect(details).toHaveAttribute("open");
+      expect(screen.getByRole("searchbox", { name: "Recherche libre" })).toBeVisible();
+
+      act(() => viewport.resize(false));
+      await waitFor(() => expect(details).not.toHaveAttribute("open"));
+      expect(disclosure).toHaveAccessibleName("Afficher les filtres, 1 actif");
+
+      await user.click(disclosure);
+      expect(details).toHaveAttribute("open");
+      expect(disclosure).toHaveAccessibleName("Masquer les filtres, 1 actif");
+
+      act(() => viewport.resize(true));
+      act(() => viewport.resize(false));
+      expect(details).toHaveAttribute("open");
+    } finally {
+      viewport.restore();
+    }
+  });
+
   it("change la période et efface les filtres sans perdre la recherche ni les paramètres étrangers", async () => {
     const { user } = renderApplication(
       "/?search=recherche-1&period=24h&source=freework&trace=a&trace=b",
@@ -299,6 +469,45 @@ describe("barre de filtres française", () => {
     expect(params.has("source")).toBe(false);
   });
 
+  it("préserve les virgules et permet d’ajouter ou retirer des tags sans ambiguïté", async () => {
+    const { user } = renderApplication(
+      "/?period=3d&lieu=Paris%2C+France&entreprise=ACME%2C+Inc.",
+    );
+    await screen.findByRole("combobox", { name: "Recherche enregistrée" });
+    await user.click(
+      screen.getByRole("button", { name: "Afficher les filtres, 2 actifs" }),
+    );
+
+    const location = screen.getByRole("textbox", { name: "Ajouter un lieu" });
+    const company = screen.getByRole("textbox", { name: "Ajouter une entreprise" });
+    await user.click(location);
+    await user.tab();
+    await user.click(company);
+    await user.tab();
+    expect(new URLSearchParams(window.location.search).getAll("lieu")).toEqual([
+      "Paris, France",
+    ]);
+    expect(new URLSearchParams(window.location.search).getAll("entreprise")).toEqual([
+      "ACME, Inc.",
+    ]);
+
+    await user.type(location, "Lyon, France{Enter}");
+    expect(new URLSearchParams(window.location.search).getAll("lieu")).toEqual([
+      "Paris, France",
+      "Lyon, France",
+    ]);
+    await user.click(
+      screen.getByRole("button", { name: "Supprimer le lieu Paris, France" }),
+    );
+    expect(new URLSearchParams(window.location.search).getAll("lieu")).toEqual([
+      "Lyon, France",
+    ]);
+
+    await user.click(location);
+    await user.keyboard("{Backspace}");
+    expect(new URLSearchParams(window.location.search).has("lieu")).toBe(false);
+  });
+
   it("offre un panneau repliable nommé, compté et composé de contrôles sémantiques", async () => {
     const { user } = renderApplication(
       "/?search=recherche-1&period=3d&remote=false&salaire=0&tri=relevance",
@@ -314,16 +523,16 @@ describe("barre de filtres française", () => {
     expect(disclosure.closest("details")).toHaveAttribute("open");
 
     expect(screen.getByRole("searchbox", { name: "Recherche libre" })).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "Lieux des offres" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Ajouter un lieu" })).toBeVisible();
     expect(screen.getByRole("listbox", { name: "Contrats" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Télétravail des offres" })).toHaveValue(
       "false",
     );
     expect(screen.getByRole("listbox", { name: "Expérience" })).toBeVisible();
     expect(screen.getByRole("spinbutton", { name: "Salaire minimum" })).toHaveValue(0);
-    expect(screen.getByRole("textbox", { name: "Entreprises" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Ajouter une entreprise" })).toBeVisible();
     expect(screen.getByRole("listbox", { name: "Sources" })).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "Compétences" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Ajouter une compétence" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Doublons" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Trier par" })).toHaveValue(
       "relevance",

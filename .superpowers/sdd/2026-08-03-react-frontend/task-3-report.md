@@ -37,8 +37,8 @@
 
 ## Verification
 
-- `vitest run` — 44 passed in 4 test files, including all 13 saved-search
-  regression tests and all 10 Task 3 tests.
+- `vitest run` — 49 passed in 4 test files, including all 13 saved-search
+  regression tests and all 15 Task 3 tests.
 - `tsc --noEmit` — passed with strict TypeScript.
 - `vite build` — passed; Vite transformed 96 modules and emitted the
   production bundle.
@@ -49,3 +49,24 @@ offline package-store miss. Verification therefore used a clean temporary
 frontend copy with the already verified locked dependency tree, stayed fully
 offline, and copied the final source and configuration immediately before each
 gate.
+
+## Formal review round 1
+
+- Reproduced the native `<details>` desktop-visibility failure with a
+  `matchMedia` resize test. The disclosure is now controlled: always open from
+  768 px, independently collapsible below 768 px, and its mobile state survives
+  a desktop round trip. Its accessible name switches between “Afficher” and
+  “Masquer” while retaining the active count.
+- Reproduced a pending `q` write overwriting a restored history entry when only
+  another parameter changed. Every router/search identity change now cancels
+  the timer and restores the URL draft; Back and Forward retain both entries.
+  Debounced text writes replace the current entry, verified by a mutation test
+  that fails when replacement is removed.
+- Reproduced the first render of new filters carrying the previous page offset.
+  Pagination is now associated with the semantic filter signature, so a new
+  filter or saved-search selection exposes offset zero immediately, including
+  Back navigation, while unchanged filters retain pagination.
+- Reproduced comma-containing locations and companies being split on blur.
+  Free-list filters now use unambiguous French tag inputs: repeated URL values
+  round-trip unchanged, commas remain literal, Enter adds, remove buttons
+  delete a named tag, and Backspace removes the final tag from an empty input.

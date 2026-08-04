@@ -48,52 +48,92 @@ function selectedValues(element: HTMLSelectElement): string[] | undefined {
   return values.length > 0 ? values : undefined;
 }
 
-function TextListFilter({
+function useDesktopFilters() {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(min-width: 768px)").matches
+      : false,
+  );
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(min-width: 768px)");
+    const update = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    setIsDesktop(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return isDesktop;
+}
+
+function TagFilter({
   id,
   label,
+  inputLabel,
+  itemName,
   values,
   placeholder,
   onCommit,
 }: {
   id: string;
   label: string;
+  inputLabel: string;
+  itemName: string;
   values: string[] | undefined;
   placeholder: string;
   onCommit: (values: string[] | undefined) => void;
 }) {
-  const serialized = values?.join(", ") ?? "";
-  const [draft, setDraft] = useState(serialized);
+  const [draft, setDraft] = useState("");
 
-  useEffect(() => setDraft(serialized), [serialized]);
+  useEffect(() => setDraft(""), [values]);
 
-  function commit() {
-    const seen = new Set<string>();
-    const parsed = draft
-      .split(",")
-      .map((value) => value.trim())
-      .filter((value) => {
-        if (!value || seen.has(value)) return false;
-        seen.add(value);
-        return true;
-      });
-    onCommit(parsed.length > 0 ? parsed : undefined);
+  function addDraft() {
+    const value = draft.trim();
+    if (!value) return;
+    if (!values?.includes(value)) onCommit([...(values ?? []), value]);
+    setDraft("");
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") {
       event.preventDefault();
-      commit();
+      addDraft();
+    } else if (event.key === "Backspace" && draft === "" && values?.length) {
+      onCommit(values.length === 1 ? undefined : values.slice(0, -1));
     }
   }
 
   return (
     <div className="job-filter-field">
-      <label htmlFor={id}>{label}</label>
+      <span className="job-filter-label">{label}</span>
+      {values?.length ? (
+        <div className="job-filter-tags" aria-label={`${label} sélectionnés`}>
+          {values.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className="job-filter-tag"
+              aria-label={`Supprimer ${itemName} ${value}`}
+              onClick={() => {
+                const next = values.filter((candidate) => candidate !== value);
+                onCommit(next.length > 0 ? next : undefined);
+              }}
+            >
+              <span>{value}</span>
+              <span aria-hidden="true">×</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <label className="visually-hidden" htmlFor={id}>
+        {inputLabel}
+      </label>
       <input
         id={id}
         value={draft}
         placeholder={placeholder}
-        onBlur={commit}
+        onBlur={addDraft}
         onChange={(event) => setDraft(event.currentTarget.value)}
         onKeyDown={handleKeyDown}
       />
@@ -109,6 +149,8 @@ export function JobFilters({
   setFilter,
   clearFilters,
 }: JobFiltersProps) {
+  const isDesktop = useDesktopFilters();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const salaryErrorId = useId();
   const [salaryDraft, setSalaryDraft] = useState(
     filters.salaryMin === undefined ? "" : String(filters.salaryMin),
@@ -125,14 +167,23 @@ export function JobFilters({
   }
 
   const activeLabel = `${activeCount} ${activeCount > 1 ? "actifs" : "actif"}`;
+  const disclosureOpen = isDesktop || mobileOpen;
 
   return (
-    <details className="filter-disclosure">
+    <details
+      className="filter-disclosure"
+      open={disclosureOpen}
+      onToggle={(event) => {
+        if (!isDesktop && event.currentTarget.open !== mobileOpen) {
+          setMobileOpen(event.currentTarget.open);
+        }
+      }}
+    >
       <summary
         role="button"
         className="filter-disclosure__summary"
         aria-controls="job-filters-panel"
-        aria-label={`Afficher les filtres, ${activeLabel}`}
+        aria-label={`${disclosureOpen ? "Masquer" : "Afficher"} les filtres, ${activeLabel}`}
       >
         <span>Filtres</span>
         <span className="filter-count">{activeLabel}</span>
@@ -150,11 +201,13 @@ export function JobFilters({
           />
         </div>
 
-        <TextListFilter
+        <TagFilter
           id="job-locations"
           label="Lieux des offres"
+          inputLabel="Ajouter un lieu"
+          itemName="le lieu"
           values={filters.locations}
-          placeholder="Paris, Lyon"
+          placeholder="Ajouter puis Entrée"
           onCommit={(values) => setFilter("locations", values)}
         />
 
@@ -240,11 +293,13 @@ export function JobFilters({
           ) : null}
         </div>
 
-        <TextListFilter
+        <TagFilter
           id="job-companies"
           label="Entreprises"
+          inputLabel="Ajouter une entreprise"
+          itemName="l’entreprise"
           values={filters.companies}
-          placeholder="Acme, Exemple"
+          placeholder="Ajouter puis Entrée"
           onCommit={(values) => setFilter("companies", values)}
         />
 
@@ -265,11 +320,13 @@ export function JobFilters({
           </select>
         </div>
 
-        <TextListFilter
+        <TagFilter
           id="job-skills"
           label="Compétences"
+          inputLabel="Ajouter une compétence"
+          itemName="la compétence"
           values={filters.skills}
-          placeholder="Python, React"
+          placeholder="Ajouter puis Entrée"
           onCommit={(values) => setFilter("skills", values)}
         />
 
