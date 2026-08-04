@@ -80,89 +80,116 @@ class AdzunaScraper(BaseScraper):
             self._incomplete_search("Clés API Adzuna manquantes")
             return
 
-        page = 1
+        families = self._contract_filter_families(criteria)
+        if not families:
+            self._mark_search_complete()
+            return
+
         jobs_found = 0
         max_results = criteria.max_results
-        seen_ids: set = set()
+        seen_ids: set[str] = set()
         results_per_page = 50  # Max autorisé par Adzuna
 
-        while jobs_found < max_results:
-            url = self._build_search_url(criteria, page, results_per_page)
-            logger.debug(f"Requête Adzuna: {url}")
+        if jobs_found >= max_results:
+            self._mark_search_complete()
+            return
 
-            try:
-                response = self._request_with_retry(
-                    lambda: requests.get(url, timeout=self.timeout)
+        for contract_filter in families:
+            page = 1
+            family_seen_ids: set[str] = set()
+
+            while jobs_found < max_results:
+                url = self._build_search_url(
+                    criteria,
+                    page,
+                    results_per_page,
+                    contract_filter=contract_filter,
                 )
-                data = response.json()
-                if not isinstance(data, dict):
-                    self._incomplete_search("Réponse Adzuna invalide")
-                    break
+                logger.debug(
+                    "Requête Adzuna: page={}, filtre_contrat={}",
+                    page,
+                    contract_filter or "aucun",
+                )
 
-                results = data.get("results", [])
-                if not isinstance(results, list):
-                    self._incomplete_search("Réponse Adzuna sans liste de résultats")
-                    break
-                if not results:
-                    total_count = data.get("count", 0)
-                    if isinstance(total_count, (int, float)) and total_count > 0:
+                try:
+                    response = self._request_with_retry(
+                        lambda: requests.get(url, timeout=self.timeout)
+                    )
+                    data = response.json()
+                    if not isinstance(data, dict):
+                        self._incomplete_search("Réponse Adzuna invalide")
+                        return
+
+                    results = data.get("results", [])
+                    if not isinstance(results, list):
                         self._incomplete_search(
-                            "Adzuna annonce des résultats mais renvoie une page vide"
+                            "Réponse Adzuna sans liste de résultats"
                         )
-                    self._mark_search_complete()
-                    logger.info("Plus d'offres trouvées")
-                    break
-
-                new_jobs_on_page = 0
-                parsed_jobs_on_page = 0
-                for result in results:
-                    if jobs_found >= max_results:
+                        return
+                    if not results:
+                        total_count = data.get("count", 0)
+                        if isinstance(total_count, (int, float)) and total_count > 0:
+                            self._incomplete_search(
+                                "Adzuna annonce des résultats mais renvoie une page vide"
+                            )
+                            return
+                        logger.info("Plus d'offres trouvées")
                         break
 
-                    job = self._parse_result(result)
-                    if job:
-                        parsed_jobs_on_page += 1
-                        if job.id in seen_ids:
-                            continue
-                        seen_ids.add(job.id)
-                        jobs_found += 1
-                        new_jobs_on_page += 1
-                        yield job
+                    new_jobs_on_page = 0
+                    parsed_jobs_on_page = 0
+                    for result in results:
+                        job = self._parse_result(result)
+                        if job:
+                            parsed_jobs_on_page += 1
+                            if job.id in family_seen_ids:
+                                continue
+                            family_seen_ids.add(job.id)
+                            new_jobs_on_page += 1
+                            if job.id in seen_ids:
+                                continue
+                            seen_ids.add(job.id)
+                            jobs_found += 1
+                            if jobs_found >= max_results:
+                                self._mark_search_complete()
+                                yield job
+                                return
+                            yield job
 
-                if parsed_jobs_on_page != len(results):
-                    self._incomplete_search(
-                        "Une partie des résultats Adzuna est inexploitable"
-                    )
+                    if parsed_jobs_on_page != len(results):
+                        self._incomplete_search(
+                            "Une partie des résultats Adzuna est inexploitable"
+                        )
 
-                if new_jobs_on_page == 0:
-                    logger.info("Plus de nouvelles offres")
-                    self._incomplete_search(
-                        "La page Adzuna ne contient que des doublons"
-                    )
-                    break
+                    if new_jobs_on_page == 0:
+                        logger.info("Plus de nouvelles offres")
+                        self._incomplete_search(
+                            "La page Adzuna ne contient que des doublons"
+                        )
+                        return
 
-                # Vérifier s'il y a plus de pages
-                total_count = data.get("count", 0)
-                if not isinstance(total_count, (int, float)) or total_count < 0:
-                    self._incomplete_search("Pagination Adzuna invalide")
-                    break
-                if page * results_per_page >= total_count:
-                    self._mark_search_complete()
-                    break
+                    # Vérifier s'il y a plus de pages
+                    total_count = data.get("count", 0)
+                    if not isinstance(total_count, (int, float)) or total_count < 0:
+                        self._incomplete_search("Pagination Adzuna invalide")
+                        return
+                    if page * results_per_page >= total_count:
+                        break
 
-                page += 1
+                    page += 1
 
-            except requests.RequestException as e:
-                logger.error(f"Erreur API Adzuna: {e}")
-                if self.config.get("propagate_search_errors"):
-                    raise
-                break
-            except Exception as e:
-                logger.error(f"Erreur lors de la recherche: {e}")
-                if self.config.get("propagate_search_errors"):
-                    raise
-                break
+                except requests.RequestException as e:
+                    logger.error(f"Erreur API Adzuna: {e}")
+                    if self.config.get("propagate_search_errors"):
+                        raise
+                    return
+                except Exception as e:
+                    logger.error(f"Erreur lors de la recherche: {e}")
+                    if self.config.get("propagate_search_errors"):
+                        raise
+                    return
 
+        self._mark_search_complete()
         logger.info(f"Recherche terminée: {jobs_found} offres uniques trouvées")
 
     def get_job_details(self, job_id: str) -> Optional[JobOffer]:
