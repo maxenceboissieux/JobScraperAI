@@ -98,7 +98,11 @@ class HelloWorkScraper(BaseScraper):
             page = 1
             seen_ids_in_query: set[str] = set()
             while jobs_found < max_results:
-                page_url = f"{url}&p={page}" if page > 1 else url
+                if page > 1:
+                    separator = "&" if "?" in url else "?"
+                    page_url = f"{url}{separator}p={page}"
+                else:
+                    page_url = url
                 logger.debug(f"Récupération page {page}: {page_url}")
 
                 try:
@@ -110,7 +114,6 @@ class HelloWorkScraper(BaseScraper):
                         logger.info("Plus d'offres trouvées")
                         break
 
-                    new_jobs_on_page = 0
                     new_ids_in_query = 0
                     parsed_jobs_on_page = 0
                     for card in job_cards:
@@ -127,7 +130,6 @@ class HelloWorkScraper(BaseScraper):
 
                             seen_ids.add(job.id)
                             jobs_found += 1
-                            new_jobs_on_page += 1
                             yield job
 
                             if jobs_found >= max_results:
@@ -137,12 +139,6 @@ class HelloWorkScraper(BaseScraper):
                         search_incomplete = True
                         self._incomplete_search(
                             "Une partie des résultats HelloWork est inexploitable"
-                        )
-                        break
-
-                    if query_index > 0 and page == 1 and new_jobs_on_page == 0:
-                        logger.info(
-                            "La requête HelloWork recouvre les résultats précédents"
                         )
                         break
 

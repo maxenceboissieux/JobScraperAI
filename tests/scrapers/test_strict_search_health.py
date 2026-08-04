@@ -336,6 +336,54 @@ def test_hellowork_rejects_duplicate_only_later_page_in_one_query(
         next(iterator)
 
 
+def test_hellowork_continues_a_later_query_past_global_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A globally seen first page does not prove the later query is exhausted."""
+
+    scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
+    responses = iter(
+        [
+            hellowork_card("1"),
+            "",
+            hellowork_card("1"),
+            hellowork_card("2"),
+            "",
+        ]
+    )
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: next(responses))
+
+    jobs = list(
+        scraper.search(SearchCriteria(keywords=["react", "nextjs"], max_results=10))
+    )
+
+    assert [job.id for job in jobs] == ["hellowork_1", "hellowork_2"]
+    assert scraper.search_complete is True
+
+
+def test_hellowork_uses_question_mark_for_page_two_without_search_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parameter-free first-page URL keeps pagination fetchable."""
+
+    scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
+    fetched: list[str] = []
+    responses = iter([hellowork_card("1"), ""])
+
+    def fetch(url: str) -> str:
+        fetched.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch)
+
+    jobs = list(scraper.search(SearchCriteria(location="", max_results=10)))
+
+    base_url = "https://www.hellowork.com/fr-fr/emploi/recherche.html"
+    assert [job.id for job in jobs] == ["hellowork_1"]
+    assert fetched == [base_url, f"{base_url}?p=2"]
+    assert scraper.search_complete is True
+
+
 def test_linkedin_uses_full_initial_page_then_dynamic_guest_offsets_and_confirms_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
