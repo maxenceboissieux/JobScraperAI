@@ -1,0 +1,7 @@
+{
+  "name": "pnpm",
+  "version": "10.28.2",
+  "engines": {
+    "node": ">=18.12"
+  }
+}
