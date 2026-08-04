@@ -104,7 +104,7 @@ git commit -m "feat: scaffold typed React frontend"
 - Consumes: saved-search client methods.
 - Produces: selected search ID in route `/?search=<uuid>`; create/edit/suspend interactions; header slots for sync status and refresh action.
 
-- [ ] **Step 1: Write the failing French saved-search flow**
+- [x] **Step 1: Write the failing French saved-search flow**
 
 ```tsx
 it("crée puis sélectionne une recherche enregistrée", async () => {
@@ -118,21 +118,21 @@ it("crée puis sélectionne une recherche enregistrée", async () => {
 })
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `cd frontend && pnpm test src/features/searches/searches.test.tsx`
 
-- [ ] **Step 3: Implement shell, selector, and accessible editor**
+- [x] **Step 3: Implement shell, selector, and accessible editor**
 
 Editor fields are name, keywords, title, location, radius, contracts, workplace, experience, sources and active state. Use semantic labels, fieldset/legend groups, inline French validation, Escape-to-close and focus restoration.
 
-- [ ] **Step 4: Verify behavior and responsive shell**
+- [x] **Step 4: Verify behavior and responsive shell**
 
 Run: `cd frontend && pnpm test src/features/searches/searches.test.tsx && pnpm typecheck`
 
 Expected: create, edit, suspend and selection tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src
