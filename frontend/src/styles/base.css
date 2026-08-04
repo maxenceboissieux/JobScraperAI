@@ -143,6 +143,15 @@ h2 {
   gap: 18px;
 }
 
+.app-header__sync-status {
+  min-width: 0;
+}
+
+.sync-progress {
+  display: grid;
+  gap: 6px;
+}
+
 .sync-summary {
   display: flex;
   align-items: center;
@@ -159,6 +168,63 @@ h2 {
   border: 2px solid var(--line-strong);
   border-radius: 50%;
   background: var(--paper);
+}
+
+.sync-summary--pending .sync-summary__dot,
+.sync-summary--running .sync-summary__dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.sync-summary--succeeded .sync-summary__dot {
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.sync-summary--partial .sync-summary__dot,
+.sync-summary--failed .sync-summary__dot {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.sync-progress__sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sync-progress__sources li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-progress__sources .button,
+.sync-error .button {
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: 0.7rem;
+}
+
+.sync-progress__sources small {
+  color: var(--danger);
+  font-size: inherit;
+}
+
+.sync-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .app-header__searches {
@@ -997,6 +1063,10 @@ select:focus-visible {
     width: 100%;
     justify-content: space-between;
     gap: 12px;
+  }
+
+  .sync-progress__sources {
+    max-width: 100%;
   }
 
   .sync-summary {

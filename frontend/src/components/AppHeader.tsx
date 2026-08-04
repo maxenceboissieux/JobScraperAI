@@ -40,7 +40,7 @@ export function AppHeader({
         </div>
 
         <div className="app-header__sync" aria-label="État de la synchronisation">
-          {syncStatus}
+          <div className="app-header__sync-status">{syncStatus}</div>
           {refreshAction}
         </div>
       </div>

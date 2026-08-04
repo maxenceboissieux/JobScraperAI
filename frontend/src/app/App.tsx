@@ -12,6 +12,9 @@ import { PeriodTabs } from "../features/jobs/PeriodTabs";
 import { useJobFilters } from "../features/jobs/useJobFilters";
 import { SearchEditor } from "../features/searches/SearchEditor";
 import { SearchSelector } from "../features/searches/SearchSelector";
+import { RefreshButton } from "../features/sync/RefreshButton";
+import { SyncProgress } from "../features/sync/SyncProgress";
+import { useSyncRun } from "../features/sync/useSyncRun";
 import "../styles/drawer.css";
 
 const SEARCHES_QUERY_KEY = ["searches"] as const;
@@ -66,6 +69,7 @@ export function App() {
   const [editor, setEditor] = useState<EditorSession>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const syncRun = useSyncRun();
   const selectedJobId = searchParams.get("job");
   const selectedJobTrigger = useRef<HTMLElement | null>(null);
 
@@ -268,9 +272,38 @@ export function App() {
     />
   );
 
+  const syncStatus = (
+    <SyncProgress
+      run={syncRun.run}
+      errorMessage={syncRun.errorMessage}
+      isRetrying={syncRun.isRetrying}
+      onRetryLatest={() => void syncRun.retryLatest()}
+      onRetrySource={(source) => {
+        if (syncRun.run !== null) {
+          void syncRun.retrySource(syncRun.run.id, source).catch(() => undefined);
+        }
+      }}
+    />
+  );
+  const refreshAction = (
+    <RefreshButton
+      hasSelectedSearch={selectedSearch !== null}
+      isStarting={syncRun.isStarting || syncRun.isActive}
+      onRefresh={() => {
+        if (selectedSearch !== null) {
+          void syncRun.startSync(selectedSearch.id).catch(() => undefined);
+        }
+      }}
+    />
+  );
+
   return (
     <div className="app-shell">
-      <AppHeader searchControls={searchControls} />
+      <AppHeader
+        searchControls={searchControls}
+        syncStatus={syncStatus}
+        refreshAction={refreshAction}
+      />
 
       <main className="app-main" id="contenu-principal">
         <section className="job-filters" aria-label="Filtres des offres">
