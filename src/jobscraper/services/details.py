@@ -11,6 +11,7 @@ from loguru import logger
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from jobscraper.db.base import utc_now
 from jobscraper.db.models import CanonicalJob, SourceListing
@@ -84,6 +85,7 @@ class JobDetailsService:
         now = self._utc(self.clock())
         cached_at = job.details_fetched_at
         if cached_at is not None and self._utc(cached_at) >= now - max_age:
+            self._normalize_job_timestamp(job)
             return JobDetailsResult(
                 job=job,
                 cache_state="fresh",
@@ -110,8 +112,8 @@ class JobDetailsService:
                 raise JobDetailsUnavailableError(self._UNAVAILABLE_MESSAGE)
             refreshed = self._persist_details(job, details, fetched_at=now)
         except Exception as exc:
-            self.session.rollback()
-            fallback_job = self._reload_job(canonical_job_id)
+            self._rollback_after_failure(exc)
+            fallback_job = self._reload_after_failure(canonical_job_id, exc)
             logger.opt(exception=exc).error(
                 "Échec d’actualisation des détails du job {} depuis {}",
                 canonical_job_id,
@@ -121,6 +123,7 @@ class JobDetailsService:
 
         if refreshed is None or refreshed.details_fetched_at is None:
             raise JobDetailsUnavailableError(self._UNAVAILABLE_MESSAGE)
+        self._normalize_job_timestamp(refreshed)
         return JobDetailsResult(
             job=refreshed,
             cache_state="refreshed",
@@ -262,6 +265,29 @@ class JobDetailsService:
             .execution_options(populate_existing=True)
         )
 
+    def _rollback_after_failure(self, primary_error: Exception) -> None:
+        try:
+            self.session.rollback()
+        except Exception as rollback_error:
+            logger.opt(exception=rollback_error).error(
+                "Échec secondaire du rollback après {}",
+                type(primary_error).__name__,
+            )
+
+    def _reload_after_failure(
+        self, canonical_job_id: str, primary_error: Exception
+    ) -> CanonicalJob | None:
+        try:
+            return self._reload_job(canonical_job_id)
+        except Exception as reload_error:
+            logger.opt(exception=reload_error).error(
+                "Impossible de relire le cache durable du job {}",
+                canonical_job_id,
+            )
+            raise JobDetailsUnavailableError(
+                self._UNAVAILABLE_MESSAGE
+            ) from primary_error
+
     @classmethod
     def _detail_groups(cls, job: CanonicalJob, details: JobOffer) -> list[str]:
         groups: list[str] = []
@@ -312,6 +338,7 @@ class JobDetailsService:
         cause: Exception | None = None,
     ) -> JobDetailsResult:
         if job is not None and job.details_fetched_at is not None:
+            self._normalize_job_timestamp(job)
             return JobDetailsResult(
                 job=job,
                 cache_state="stale",
@@ -328,6 +355,15 @@ class JobDetailsService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    @classmethod
+    def _normalize_job_timestamp(cls, job: CanonicalJob) -> None:
+        if job.details_fetched_at is not None:
+            set_committed_value(
+                job,
+                "details_fetched_at",
+                cls._utc(job.details_fetched_at),
+            )
 
     @classmethod
     def _next_version(cls, current: datetime) -> datetime:

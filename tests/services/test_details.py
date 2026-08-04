@@ -469,6 +469,41 @@ def test_real_commit_failure_never_returns_an_uncommitted_cache(
     assert durable.details_fetched_at is None
 
 
+def test_commit_failure_for_uncommitted_job_preserves_the_primary_error(
+    session: Session,
+) -> None:
+    """Fails if expired rolled-back ORM rows mask the primary database failure."""
+    session.connection().exec_driver_sql("BEGIN")
+    job = JobRepository(session).upsert_listing(
+        listing_offer(description="Description transitoire"),
+        seen_at=NOW - timedelta(days=3),
+    )
+    job_id = job.id
+    service, _ = service_for(
+        session,
+        Clock(),
+        {
+            "freework": DetailScenario(
+                result=listing_offer(description="Rafraîchissement transitoire")
+            )
+        },
+    )
+    primary_error = RuntimeError("primary commit failure")
+
+    def fail_commit(_session: Session) -> None:
+        raise primary_error
+
+    event.listen(session, "before_commit", fail_commit)
+    try:
+        with pytest.raises(JobDetailsUnavailableError) as caught:
+            service.get(job_id)
+    finally:
+        event.remove(session, "before_commit", fail_commit)
+
+    assert caught.value.__cause__ is primary_error
+    assert session.scalar(select(CanonicalJob).where(CanonicalJob.id == job_id)) is None
+
+
 def test_late_older_refresh_preserves_newer_groups_and_merges_disjoint_groups(
     tmp_path: Path,
 ) -> None:
@@ -565,7 +600,56 @@ def test_result_timestamps_are_always_aware_utc(session: Session) -> None:
 
     assert result.updated_at == NOW
     assert result.updated_at.tzinfo is timezone.utc
+    assert result.job.details_fetched_at == NOW
+    assert result.job.details_fetched_at.tzinfo is timezone.utc
     assert registry.created == []
+
+
+def test_stale_result_timestamps_are_always_aware_utc(session: Session) -> None:
+    """Fails if stale fallback returns a naive timestamp on either result object."""
+    job = JobRepository(session).upsert_listing(listing_offer(), seen_at=NOW)
+    job.details_fetched_at = (NOW - timedelta(days=2)).replace(tzinfo=None)
+    listing = session.scalar(
+        select(SourceListing).where(SourceListing.canonical_job_id == job.pk)
+    )
+    assert listing is not None
+    listing.active = False
+    session.flush()
+    service, registry = service_for(session, Clock(), {})
+
+    result = service.get(job.id)
+
+    assert result.cache_state == "stale"
+    assert result.updated_at.tzinfo is timezone.utc
+    assert result.job.details_fetched_at is not None
+    assert result.job.details_fetched_at.tzinfo is timezone.utc
+    assert registry.created == []
+
+
+def test_rollback_hook_failure_never_masks_the_primary_refresh_error(
+    session: Session,
+) -> None:
+    """Fails if a SQLAlchemy rollback error replaces the upstream root cause."""
+    job = JobRepository(session).upsert_listing(listing_offer(), seen_at=NOW)
+    session.commit()
+    primary_error = TimeoutError("primary scraper timeout")
+    service, _ = service_for(
+        session,
+        Clock(),
+        {"freework": DetailScenario(error=primary_error)},
+    )
+
+    def fail_after_rollback(_session: Session) -> None:
+        raise RuntimeError("secondary rollback hook failure")
+
+    event.listen(session, "after_rollback", fail_after_rollback)
+    try:
+        with pytest.raises(JobDetailsUnavailableError) as caught:
+            service.get(job.id)
+    finally:
+        event.remove(session, "after_rollback", fail_after_rollback)
+
+    assert caught.value.__cause__ is primary_error
 
 
 def test_stale_cache_survives_scraper_cleanup_failure(session: Session) -> None:
