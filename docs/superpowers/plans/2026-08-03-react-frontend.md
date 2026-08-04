@@ -151,7 +151,7 @@ git commit -m "feat: manage saved searches in French UI"
 **Interfaces:**
 - Produces: `useJobFilters() -> { filters: JobFilters; setFilter; clearFilters; activeCount }`; URL keys `period`, `q`, `lieu`, `contrat`, `remote`, `experience`, `salaire`, `entreprise`, `source`, `competence`, `doublon`, `tri`.
 
-- [ ] **Step 1: Write failing period and reset tests**
+- [x] **Step 1: Write failing period and reset tests**
 
 ```tsx
 it("applique 3 jours et réinitialise les filtres", async () => {
@@ -163,19 +163,19 @@ it("applique 3 jours et réinitialise les filtres", async () => {
 })
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `cd frontend && pnpm test src/features/jobs/filters.test.tsx`
 
-- [ ] **Step 3: Implement URL-backed filters**
+- [x] **Step 3: Implement URL-backed filters**
 
 Default period is `3d`; debounce text search by 250 ms; preserve selected saved search when clearing filters. Render filters in one horizontal desktop bar and an accessible collapsible panel below 768 px.
 
-- [ ] **Step 4: Verify filter serialization and accessibility**
+- [x] **Step 4: Verify filter serialization and accessibility**
 
 Run: `cd frontend && pnpm test src/features/jobs/filters.test.tsx && pnpm typecheck`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/features/jobs frontend/src/app/App.tsx
