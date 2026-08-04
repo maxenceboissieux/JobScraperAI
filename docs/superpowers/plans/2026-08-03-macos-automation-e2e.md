@@ -123,7 +123,7 @@ git commit -m "feat: automate daily sync with launchd"
 **Interfaces:**
 - Produces: `CatchupService.is_due(now: datetime, last_completed_at: datetime | None, scheduled_hour: int = 8) -> bool`; `jobscraper serve [--host 127.0.0.1 --port 8000] [--no-open]`.
 
-- [ ] **Step 1: Write due/not-due boundary tests**
+- [x] **Step 1: Write due/not-due boundary tests**
 
 ```python
 assert service.is_due(datetime(2026, 8, 3, 9, tzinfo=PARIS), None, 8)
@@ -131,27 +131,27 @@ assert service.is_due(datetime(2026, 8, 3, 9, tzinfo=PARIS), datetime(2026, 8, 2
 assert not service.is_due(datetime(2026, 8, 3, 9, tzinfo=PARIS), datetime(2026, 8, 3, 8, 5, tzinfo=PARIS), 8)
 ```
 
-- [ ] **Step 2: Write failing serve-command test**
+- [x] **Step 2: Write failing serve-command test**
 
 Assert `serve` upgrades Alembic, checks the built frontend, schedules catch-up in the bounded executor when due, starts Uvicorn and opens `http://127.0.0.1:8000` unless `--no-open` is supplied.
 
-- [ ] **Step 3: Verify failures**
+- [x] **Step 3: Verify failures**
 
 Run: `.venv/bin/python -m pytest tests/services/test_catchup.py tests/test_serve_command.py -v`
 
-- [ ] **Step 4: Implement timezone-safe catch-up**
+- [x] **Step 4: Implement timezone-safe catch-up**
 
 Use `zoneinfo.ZoneInfo` with the configured local timezone; compare calendar schedule instants rather than elapsed 24-hour durations. Catch-up triggers at most once per process startup and uses the same sync service as manual/daily runs.
 
-- [ ] **Step 5: Implement `serve` orchestration**
+- [x] **Step 5: Implement `serve` orchestration**
 
 Fail with a French actionable message if migrations or frontend assets are invalid. Browser opening uses Python `webbrowser.open()` after the socket becomes reachable; `--no-open` suppresses it for automation and tests.
 
-- [ ] **Step 6: Verify tests**
+- [x] **Step 6: Verify tests**
 
 Run: `.venv/bin/python -m pytest tests/services/test_catchup.py tests/test_serve_command.py -v`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/jobscraper/services/catchup.py src/jobscraper/cli.py src/jobscraper/api/app.py tests
