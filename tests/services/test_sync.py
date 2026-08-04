@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import requests
+from loguru import logger
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
@@ -114,6 +115,15 @@ class FakeRegistry:
         return scraper
 
 
+class FixedScraperRegistry:
+    def __init__(self, scraper: BaseScraper) -> None:
+        self.scraper = scraper
+
+    def create(self, source: str) -> BaseScraper:
+        assert source == self.scraper.name
+        return self.scraper
+
+
 def source_results(session: Session, run_id: str) -> dict[str, SourceSyncResult]:
     run = SyncRunRepository(session).get(run_id)
     assert run is not None
@@ -158,6 +168,61 @@ def test_mixed_source_outcomes_persist_success_and_finish_partial(
     assert session.scalar(select(func.count(SearchListing.pk))) == 1
     assert registry.created == ["freework", "linkedin"]
     assert all(scraper.closed for scraper in registry.instances)
+
+
+def test_adzuna_request_failure_is_sanitized_at_sync_logging_boundary(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saved_search = SavedSearchRepository(session).create(
+        name="Python",
+        criteria=SearchCriteria(keywords=["python"]),
+        sources=["adzuna"],
+    )
+    scraper = AdzunaScraper(
+        {
+            "app_id": "fake-app-id",
+            "app_key": "fake-app-key",
+            "propagate_search_errors": True,
+        }
+    )
+    secret_error = requests.HTTPError(
+        "401 Client Error for url: "
+        "https://api.adzuna.com/search?app_id=fake-app-id&app_key=fake-app-key"
+    )
+
+    def fail_request(_operation):
+        raise secret_error
+
+    monkeypatch.setattr(scraper, "_request_with_retry", fail_request)
+    messages: list[str] = []
+    propagated: list[BaseException] = []
+
+    def capture(message) -> None:
+        messages.append(str(message))
+        exception = message.record["exception"]
+        if exception is not None:
+            propagated.append(exception.value)
+
+    handler_id = logger.add(capture, format="{message}")
+    try:
+        run_id = SyncService(session, registry=FixedScraperRegistry(scraper)).run(
+            saved_search.id
+        )
+    finally:
+        logger.remove(handler_id)
+
+    result = source_results(session, run_id)["adzuna"]
+    assert result.status == "failed"
+    assert scraper.search_complete is False
+    request_error = next(
+        error for error in propagated if isinstance(error, requests.RequestException)
+    )
+    assert str(request_error) == "Échec de la requête Adzuna"
+    assert request_error.__cause__ is None
+    assert request_error.__suppress_context__ is True
+    log_output = "\n".join(messages)
+    assert "fake-app-id" not in log_output
+    assert "fake-app-key" not in log_output
 
 
 def test_sync_service_calls_injected_duplicate_classifier(session: Session) -> None:

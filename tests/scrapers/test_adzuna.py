@@ -100,18 +100,21 @@ def test_global_limit_stops_before_next_contract_family(
     assert scraper.search_complete is True
 
 
-def test_unsupported_contracts_complete_without_request(
-    scraper: AdzunaScraper, monkeypatch: pytest.MonkeyPatch
+def test_unsupported_contracts_complete_without_credentials_or_request(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("ADZUNA_APP_ID", raising=False)
+    monkeypatch.delenv("ADZUNA_APP_KEY", raising=False)
+    strict = AdzunaScraper({"propagate_search_errors": True})
     monkeypatch.setattr(
-        scraper,
+        strict,
         "_request_with_retry",
         lambda _operation: pytest.fail("Adzuna must not receive a broad query"),
     )
 
     assert (
         list(
-            scraper.search(
+            strict.search(
                 SearchCriteria(
                     contract_types=[ContractType.STAGE, ContractType.ALTERNANCE]
                 )
@@ -119,7 +122,7 @@ def test_unsupported_contracts_complete_without_request(
         )
         == []
     )
-    assert scraper.search_complete is True
+    assert strict.search_complete is True
 
 
 def test_http_error_logs_no_authenticated_url(
@@ -183,7 +186,7 @@ def test_later_contract_family_failure_propagates(
     )
 
     assert next(iterator).id == "adzuna_cdd"
-    with pytest.raises(requests.HTTPError, match="second family failed"):
+    with pytest.raises(requests.RequestException, match="Échec de la requête Adzuna"):
         next(iterator)
     assert strict.search_complete is False
 

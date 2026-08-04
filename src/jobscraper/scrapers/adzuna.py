@@ -75,14 +75,14 @@ class AdzunaScraper(BaseScraper):
             JobOffer: Les offres d'emploi trouvées
         """
         self._begin_search()
-        if not self.app_id or not self.app_key:
-            logger.error("Clés API Adzuna manquantes")
-            self._incomplete_search("Clés API Adzuna manquantes")
-            return
-
         families = self._contract_filter_families(criteria)
         if not families:
             self._mark_search_complete()
+            return
+
+        if not self.app_id or not self.app_key:
+            logger.error("Clés API Adzuna manquantes")
+            self._incomplete_search("Clés API Adzuna manquantes")
             return
 
         jobs_found = 0
@@ -181,7 +181,9 @@ class AdzunaScraper(BaseScraper):
                 except requests.RequestException as e:
                     logger.error("Erreur API Adzuna: {}", type(e).__name__)
                     if self.config.get("propagate_search_errors"):
-                        raise
+                        raise requests.RequestException(
+                            "Échec de la requête Adzuna"
+                        ) from None
                     return
                 except Exception as e:
                     logger.error("Erreur lors de la recherche: {}", type(e).__name__)
