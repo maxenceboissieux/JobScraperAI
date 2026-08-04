@@ -72,7 +72,7 @@ git commit -m "feat: add headless saved-search sync command"
 **Interfaces:**
 - Produces: `render_launch_agent(project_dir: Path, python_path: Path, hour: int, minute: int) -> bytes`; CLI commands `automation install [--hour 8 --minute 0]`, `automation status`, `automation uninstall`.
 
-- [ ] **Step 1: Write deterministic plist tests**
+- [x] **Step 1: Write deterministic plist tests**
 
 ```python
 plist = plistlib.loads(render_launch_agent(PROJECT, PYTHON, hour=8, minute=0))
@@ -84,27 +84,27 @@ assert plist["WorkingDirectory"] == str(PROJECT)
 
 Assert logs go to `data/logs/launchd.out.log` and `launchd.err.log`, and hour/minute validation rejects 24/60.
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `.venv/bin/python -m pytest tests/automation/test_launchd.py -v`
 
-- [ ] **Step 3: Implement pure plist rendering**
+- [x] **Step 3: Implement pure plist rendering**
 
 Use `plistlib`; resolve absolute project and interpreter paths; include `RunAtLoad: false`; never embed shell strings or secrets. Write files atomically through a temporary sibling and `Path.replace()`.
 
-- [ ] **Step 4: Implement user-scoped CLI lifecycle**
+- [x] **Step 4: Implement user-scoped CLI lifecycle**
 
 Install at `~/Library/LaunchAgents/com.jobscraper.daily-sync.plist` and run `launchctl bootstrap gui/<uid> <plist>`. Installation does not trigger an immediate scrape; the existing manual refresh handles that choice. Uninstall with `launchctl bootout` before deleting only that exact plist. `status` reads `launchctl print` and reports French state.
 
-- [ ] **Step 5: Test subprocess boundaries without touching real launchd**
+- [x] **Step 5: Test subprocess boundaries without touching real launchd**
 
 Mock `subprocess.run` and assert exact argument arrays, error propagation, idempotent reinstall, and no deletion outside the exact user plist path.
 
-- [ ] **Step 6: Verify tests**
+- [x] **Step 6: Verify tests**
 
 Run: `.venv/bin/python -m pytest tests/automation/test_launchd.py -v`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/jobscraper/automation src/jobscraper/cli.py tests/automation .gitignore
