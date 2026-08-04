@@ -49,7 +49,7 @@ def load_fixture():
             "hellowork",
             "hellowork_20002",
             "https://www.hellowork.com/fr-fr/emplois/developpeur-python-20002.html",
-            "75001 Paris",
+            "Civrieux - 01",
         ),
         (
             FranceTravailScraper({"delay": 0}),

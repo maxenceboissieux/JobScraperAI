@@ -141,7 +141,9 @@ class HelloWorkScraper(BaseScraper):
                         break
 
                     if query_index > 0 and page == 1 and new_jobs_on_page == 0:
-                        logger.info("La requête HelloWork recouvre les résultats précédents")
+                        logger.info(
+                            "La requête HelloWork recouvre les résultats précédents"
+                        )
                         break
 
                     if page > 1 and new_ids_in_query == 0:
@@ -344,23 +346,32 @@ class HelloWorkScraper(BaseScraper):
                 company_elem = card.select_one("p.tw-typo-s.tw-inline")
                 company = company_elem.get_text(strip=True) if company_elem else None
 
-            # Tags (localisation, contrat, salaire, télétravail)
+            # Métadonnées actuelles, exposées via des attributs stables.
+            location_elem = card.select_one('[data-cy="localisationCard"]')
+            contract_elem = card.select_one('[data-cy="contractCard"]')
+            location = (
+                location_elem.get_text(" ", strip=True) if location_elem else None
+            )
+            contract_type = (
+                self._map_contract_type(contract_elem.get_text(" ", strip=True))
+                if contract_elem
+                else None
+            )
+            salary_text = None
+
+            # Balises historiques : elles restent utiles pour les anciennes cartes
+            # et pour les métadonnées non encore couvertes par data-cy (salaire).
             tags = card.select(
                 "div.tw-tag-secondary-s, div.tw-readonly.tw-tag-secondary-s"
             )
-
-            location = None
-            contract_type = None
-            salary_text = None
-
             for tag in tags:
-                text = tag.get_text(strip=True)
+                text = tag.get_text(" ", strip=True)
 
                 # Localisation (contient un code postal ou arrondissement)
                 if re.search(r"\d{2,5}$|^\d{5}", text) and not location:
                     location = text
                 # Type de contrat
-                elif text.upper() in [
+                elif not contract_type and text.upper() in [
                     "CDI",
                     "CDD",
                     "STAGE",
@@ -371,7 +382,7 @@ class HelloWorkScraper(BaseScraper):
                 ]:
                     contract_type = self._map_contract_type(text)
                 # Salaire
-                elif "€" in text:
+                elif "€" in text and not salary_text:
                     salary_text = text
 
             # Date de publication
