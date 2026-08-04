@@ -171,11 +171,11 @@ git commit -m "feat: catch up missed daily synchronization"
 - Consumes: production CLI/API/frontend with `JOBSCRAPER_SCRAPER_MODE=fake` and temporary SQLite URL.
 - Produces: `pnpm e2e` verifying saved search, sync, filters, detail cache, source links and possible duplicate navigation.
 
-- [ ] **Step 1: Add Playwright and an isolated web-server command**
+- [x] **Step 1: Add Playwright and an isolated web-server command**
 
 The test command creates a temporary directory, upgrades its SQLite database, builds the frontend, starts `jobscraper serve --no-open` on an available localhost port with fake adapters, and tears down the process on exit.
 
-- [ ] **Step 2: Write the failing complete user journey**
+- [x] **Step 2: Write the failing complete user journey**
 
 ```ts
 test("recherche, synchronisation, filtres, cache et doublon possible", async ({ page }) => {
@@ -195,21 +195,21 @@ test("recherche, synchronisation, filtres, cache et doublon possible", async ({ 
 })
 ```
 
-- [ ] **Step 3: Verify the journey fails before fake adapter wiring**
+- [x] **Step 3: Verify the journey fails before fake adapter wiring**
 
 Run: `cd frontend && pnpm e2e`
 
-- [ ] **Step 4: Implement deterministic fake adapters**
+- [x] **Step 4: Implement deterministic fake adapters**
 
 Return two close-but-not-confirmed jobs from different sources, fixed UTC dates within three days, one cached description, and stable source URLs under `https://example.invalid/`. Enable fakes only when `JOBSCRAPER_SCRAPER_MODE=fake`; reject that value when `JOBSCRAPER_ENV=production`.
 
-- [ ] **Step 5: Verify the full journey**
+- [x] **Step 5: Verify the full journey**
 
 Run: `cd frontend && pnpm e2e`
 
 Expected: the complete browser test passes without external network access.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend tests/e2e scripts/run-e2e.sh
@@ -226,15 +226,15 @@ git commit -m "test: cover local job aggregation journey"
 **Interfaces:**
 - Produces: documented install, run, schedule, logs, recovery and uninstall procedures.
 
-- [ ] **Step 1: Document the exact local workflow**
+- [x] **Step 1: Document the exact local workflow**
 
 Include Python 3.12 and Node 20 prerequisites; `.venv` creation; `pip install -e '.[dev]'`; `pnpm install`; frontend build; `alembic upgrade head`; `jobscraper serve`; saved-search creation; manual refresh; `jobscraper automation install --hour 8 --minute 0`; status, logs and uninstall.
 
-- [ ] **Step 2: Document scheduler behavior and limits**
+- [x] **Step 2: Document scheduler behavior and limits**
 
 State that the Mac must eventually wake, missed schedules catch up at application startup, data stays local under `data/`, source HTML can change, and public-site terms/rate limits must be respected.
 
-- [ ] **Step 3: Run every automated gate from a clean environment**
+- [x] **Step 3: Run every automated gate from a clean environment**
 
 Run: `.venv/bin/python -m pytest -m 'not live' --cov=jobscraper`
 
@@ -244,13 +244,13 @@ Run: `cd frontend && pnpm test --run && pnpm typecheck && pnpm build && pnpm e2e
 
 Expected: all commands pass.
 
-- [ ] **Step 4: Perform bounded live Free-Work verification**
+- [x] **Step 4: Perform bounded live Free-Work verification**
 
 Run: `RUN_LIVE_SCRAPER_TESTS=1 .venv/bin/python -m pytest tests/live/test_sources_live.py -k FreeWork -v`
 
 Expected: Free-Work returns at least one valid current offer and details; if blocked externally, retain passing fixture tests and record the exact HTTP evidence without claiming live success.
 
-- [ ] **Step 5: Install and inspect the real user agent with confirmation**
+- [x] **Step 5: Install and inspect the real user agent with confirmation**
 
 Run: `.venv/bin/jobscraper automation install --hour 8 --minute 0`
 
@@ -258,7 +258,7 @@ Run: `.venv/bin/jobscraper automation status`
 
 Expected: `com.jobscraper.daily-sync` is loaded for the current GUI user and points to the project `.venv` interpreter.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add README.md .env.example docs/macOS-automation.md
@@ -273,7 +273,7 @@ git commit -m "docs: explain local operation and automation"
 **Interfaces:**
 - Produces: evidence that the approved design is complete.
 
-- [ ] **Step 1: Verify repository state and migrations**
+- [x] **Step 1: Verify repository state and migrations**
 
 Run: `git status --short`
 
@@ -281,16 +281,16 @@ Run: `.venv/bin/alembic current`
 
 Expected: no tracked changes remain and database revision equals migration head.
 
-- [ ] **Step 2: Verify the user-facing app**
+- [x] **Step 2: Verify the user-facing app**
 
 Run: `.venv/bin/jobscraper serve --no-open`
 
 Open `http://127.0.0.1:8000`, create a saved search, manually refresh, select each period, apply source and contract filters, open details, follow a possible duplicate, and confirm the page remains usable during refresh.
 
-- [ ] **Step 3: Verify schedule recovery**
+- [x] **Step 3: Verify schedule recovery**
 
 With a test database whose last successful run predates today's 08:00 schedule, start `jobscraper serve --no-open` and assert one catch-up run is created. Restart after completion and assert no second catch-up run is created that day.
 
-- [ ] **Step 4: Record final evidence**
+- [x] **Step 4: Record final evidence**
 
 Capture exact test totals, build result, live Free-Work outcome, launchd status, and any externally blocked source in the completion report. Do not describe externally blocked sources as working.
