@@ -39,11 +39,11 @@
 - Consumes: FastAPI endpoints from the aggregation plan.
 - Produces: `api.getSearches`, `createSearch`, `updateSearch`, `getJobs`, `getJob`, `startSync`, `retrySyncSource`, `getLatestSync`; shared `SavedSearch`, `JobCard`, `JobDetails`, `SyncRun` types.
 
-- [ ] **Step 1: Create the package scripts and dependencies**
+- [x] **Step 1: Create the package scripts and dependencies**
 
 Define scripts `dev`, `build`, `typecheck`, `test`, and `test:watch`. Add React, React DOM, React Router, TanStack Query; add Vite, TypeScript, Vitest, jsdom, Testing Library, user-event and MSW as dev dependencies.
 
-- [ ] **Step 2: Write the failing API-client test**
+- [x] **Step 2: Write the failing API-client test**
 
 ```tsx
 it("encode les filtres d'offres dans la requête", async () => {
@@ -57,13 +57,13 @@ it("encode les filtres d'offres dans la requête", async () => {
 })
 ```
 
-- [ ] **Step 3: Verify failure**
+- [x] **Step 3: Verify failure**
 
 Run: `cd frontend && pnpm test src/api/client.test.ts`
 
 Expected: FAIL because the client does not exist.
 
-- [ ] **Step 4: Implement types and fetch wrapper**
+- [x] **Step 4: Implement types and fetch wrapper**
 
 ```ts
 export type JobFilters = {
@@ -77,13 +77,13 @@ export type JobFilters = {
 
 The fetch wrapper throws `ApiError(status, detail)` from FastAPI error payloads and supports `AbortSignal`.
 
-- [ ] **Step 5: Verify tests and types**
+- [x] **Step 5: Verify tests and types**
 
 Run: `cd frontend && pnpm test src/api/client.test.ts && pnpm typecheck`
 
 Expected: client test and typecheck pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend
