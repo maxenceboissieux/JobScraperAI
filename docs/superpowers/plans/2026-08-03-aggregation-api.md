@@ -348,7 +348,7 @@ git commit -m "feat: expose local job aggregation API"
 **Interfaces:**
 - Produces: stable API contract consumed by the React plan.
 
-- [ ] **Step 1: Run backend quality gates**
+- [x] **Step 1: Run backend quality gates**
 
 Run: `.venv/bin/python -m pytest -m 'not live' --cov=jobscraper --cov-report=term-missing`
 
@@ -356,7 +356,7 @@ Run: `.venv/bin/python -m mypy src/jobscraper`
 
 Expected: all tests pass and no new type errors remain.
 
-- [ ] **Step 2: Start and probe the API**
+- [x] **Step 2: Start and probe the API**
 
 Run: `.venv/bin/jobscraper-api`
 
@@ -364,7 +364,7 @@ From another shell run: `curl --fail http://127.0.0.1:8000/api/syncs/latest`
 
 Expected: HTTP 200 with either `null` or a valid latest-run payload.
 
-- [ ] **Step 3: Confirm migration on a clean database**
+- [x] **Step 3: Confirm migration on a clean database**
 
 Run: `JOBSCRAPER_DATABASE_URL=sqlite:////tmp/jobscraper-clean.db .venv/bin/alembic upgrade head`
 
