@@ -333,7 +333,7 @@ git commit -m "feat: show manual synchronization progress"
 **Interfaces:**
 - Produces: built SPA served by FastAPI at `/`, `/assets/*`, and fallback client routes; `/api/*` remains API-only.
 
-- [ ] **Step 1: Write failing static-hosting test**
+- [x] **Step 1: Write failing static-hosting test**
 
 ```python
 def test_frontend_index_is_served(client_with_built_frontend):
@@ -342,17 +342,17 @@ def test_frontend_index_is_served(client_with_built_frontend):
     assert '<div id="root"></div>' in response.text
 ```
 
-- [ ] **Step 2: Build and verify the failure**
+- [x] **Step 2: Build and verify the failure**
 
 Run: `cd frontend && pnpm build`
 
 Run: `.venv/bin/python -m pytest tests/api/test_frontend_hosting.py -v`
 
-- [ ] **Step 3: Mount the built frontend safely**
+- [x] **Step 3: Mount the built frontend safely**
 
 Serve `frontend/dist/assets` with `StaticFiles`; return `index.html` only for non-API GET routes. If `dist` is absent, API startup remains valid and `/` returns a French development hint instead of crashing.
 
-- [ ] **Step 4: Run complete frontend gates**
+- [x] **Step 4: Run complete frontend gates**
 
 Run: `cd frontend && pnpm test --run`
 
@@ -362,11 +362,11 @@ Run: `cd frontend && pnpm build`
 
 Expected: all commands pass.
 
-- [ ] **Step 5: Run backend hosting test**
+- [x] **Step 5: Run backend hosting test**
 
 Run: `.venv/bin/python -m pytest tests/api/test_frontend_hosting.py -v`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend src/jobscraper/api/app.py tests/api/test_frontend_hosting.py pyproject.toml README.md
