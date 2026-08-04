@@ -77,6 +77,7 @@ function renderAppWithJobs(
     loadDetails?: () => Promise<JobDetails>;
     detailsStatus?: () => number;
     onDetailsRequest?: (id: string) => void;
+    loadSearches?: () => Promise<SavedSearch[]>;
   },
 ) {
   window.history.replaceState(
@@ -85,7 +86,11 @@ function renderAppWithJobs(
     options.initialUrl ?? "/?search=search-python&period=7d",
   );
   server.use(
-    http.get(`${origin}/api/searches`, () => HttpResponse.json([SAVED_SEARCH])),
+    http.get(`${origin}/api/searches`, async () =>
+      HttpResponse.json(
+        options.loadSearches ? await options.loadSearches() : [SAVED_SEARCH],
+      ),
+    ),
     http.get(`${origin}/api/jobs`, ({ request }) => {
       const url = new URL(request.url);
       return HttpResponse.json({
@@ -204,6 +209,26 @@ describe("détails d’une offre", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Détails de l’offre" })).toBeNull();
+  });
+
+  it("conserve le focus interne lors d’un rerender parent", async () => {
+    let resolveSearches!: (searches: SavedSearch[]) => void;
+    const pendingSearches = new Promise<SavedSearch[]>((resolve) => {
+      resolveSearches = resolve;
+    });
+    renderAppWithJobs([JOB], {
+      details: DETAILS_WITH_DUPLICATE,
+      initialUrl: "/?search=search-python&job=job-python",
+      loadSearches: () => pendingSearches,
+    });
+    const sourceLink = await screen.findByRole("link", { name: "Free-Work" });
+    sourceLink.focus();
+    expect(sourceLink).toHaveFocus();
+
+    resolveSearches([SAVED_SEARCH]);
+    await screen.findByRole("option", { name: "Python France" });
+
+    expect(sourceLink).toHaveFocus();
   });
 
   it("affiche le chargement lors de l’ouverture par lien direct", async () => {

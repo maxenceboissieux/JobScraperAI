@@ -51,6 +51,8 @@ function DetailChips({
 export function JobDetailsDrawer({ jobId, onClose, onSelectJob }: JobDetailsDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const detailsQuery = useQuery({
     queryKey: ["job-details", jobId],
     queryFn: ({ signal }) => api.getJob(jobId, signal),
@@ -67,7 +69,7 @@ export function JobDetailsDrawer({ jobId, onClose, onSelectJob }: JobDetailsDraw
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") {
@@ -101,7 +103,7 @@ export function JobDetailsDrawer({ jobId, onClose, onSelectJob }: JobDetailsDraw
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="job-drawer" role="dialog" aria-modal="true" aria-labelledby="job-drawer-title">
