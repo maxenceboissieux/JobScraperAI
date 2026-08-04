@@ -33,10 +33,15 @@ def _response(session: Session, run: SyncRun) -> SyncRunResponse:
     sources = []
     for source in run.requested_sources:
         item = persisted.get(source)
+        missing_status = "pending"
+        if run.status == "succeeded":
+            missing_status = "succeeded"
+        elif run.status in {"partial", "failed"}:
+            missing_status = "failed"
         sources.append(
             SourceProgress(
                 source=source,
-                status="pending" if item is None else item.status,  # type: ignore[arg-type]
+                status=missing_status if item is None else item.status,  # type: ignore[arg-type]
                 offers_seen=0 if item is None else item.offers_seen,
                 offers_persisted=0 if item is None else item.offers_persisted,
                 error_message=None if item is None else item.error_message,
@@ -201,7 +206,14 @@ def retry_sync(
         ),
         None,
     )
-    if outcome is None or outcome.status not in {"failed", "partial"}:
+    retryable_without_result = (
+        outcome is None
+        and original.status == "failed"
+        and payload.source in original.requested_sources
+    )
+    if not retryable_without_result and (
+        outcome is None or outcome.status not in {"failed", "partial"}
+    ):
         raise HTTPException(
             status_code=422,
             detail="Seules les sources en échec ou partielles peuvent être relancées.",

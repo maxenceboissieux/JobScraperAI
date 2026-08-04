@@ -8,7 +8,7 @@ from threading import Barrier, Event, Lock, Timer, get_ident
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from alembic import command
@@ -175,6 +175,24 @@ def test_database_locked_loser_is_409_only_when_an_active_run_is_durable(
     assert active_checks == 2
 
 
+def test_unrelated_integrity_error_is_not_misclassified_as_active_conflict(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if every insert constraint error is translated to duplicate-run 409."""
+
+    search_id = create_search(client, sources=["freework"])
+
+    def unrelated_integrity(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise IntegrityError("INSERT", {}, Exception("different constraint"))
+
+    monkeypatch.setattr(SyncRunRepository, "start", unrelated_integrity)
+
+    response = client.post("/api/syncs", json={"savedSearchId": search_id})
+
+    assert response.status_code == 500
+
+
 @pytest.mark.parametrize("retry_status", ["failed", "partial"])
 def test_retry_creates_a_new_run_for_only_failed_or_partial_source(
     client: TestClient,
@@ -291,6 +309,36 @@ def test_executor_submit_failure_marks_run_failed_and_sanitizes_error(
     assert latest.json()["status"] == "failed"
 
 
+def test_submit_rejection_exposes_failed_sources_and_allows_retry(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if a terminal run without result rows shows pending and cannot retry."""
+
+    search_id = create_search(client, sources=["freework"])
+    real_submit = client.app.state.executor.submit
+    submissions = 0
+
+    def reject_once(*args: object, **kwargs: object) -> object:
+        nonlocal submissions
+        submissions += 1
+        if submissions == 1:
+            raise RuntimeError("executor unavailable")
+        return real_submit(*args, **kwargs)
+
+    monkeypatch.setattr(SyncService, "execute", lambda self, run_id: None)
+    monkeypatch.setattr(client.app.state.executor, "submit", reject_once)
+
+    failed = client.post("/api/syncs", json={"savedSearchId": search_id})
+    original = client.get("/api/syncs/latest").json()
+    retried = client.post(
+        f"/api/syncs/{original['id']}/retry", json={"source": "freework"}
+    )
+
+    assert failed.status_code == 503
+    assert original["sources"][0]["status"] == "failed"
+    assert retried.status_code == 202
+
+
 def test_executor_shutdown_is_owned_by_application_lifespan(database_url: str) -> None:
     """Fails if worker threads outlive deterministic application shutdown."""
     app = create_app(database_url)
@@ -339,6 +387,15 @@ def test_shutdown_marks_only_queued_pending_runs_failed(
     with app.state.session_factory() as session:
         statuses = [SyncRunRepository(session).get(run_id).status for run_id in runs]  # type: ignore[union-attr]
     assert statuses == ["succeeded", "succeeded", "failed"]
+
+    restarted = create_app(database_url)
+    with TestClient(restarted) as client:
+        terminal = client.get(f"/api/syncs/{runs[2]}")
+        retried = client.post(
+            f"/api/syncs/{runs[2]}/retry", json={"source": "freework"}
+        )
+    assert terminal.json()["sources"][0]["status"] == "failed"
+    assert retried.status_code == 202
 
 
 def test_startup_upgrades_an_existing_revision_to_head(
@@ -488,6 +545,82 @@ def test_in_memory_sqlite_is_shared_with_executor_thread(
             client.get(f"/api/syncs/{response.json()['id']}").json()["status"]
             == "succeeded"
         )
+
+
+def test_in_memory_worker_rollback_cannot_undo_another_worker_claim() -> None:
+    """Fails if sqlite:// sessions share one connection and transaction state."""
+
+    app = create_app("sqlite://")
+    first_flushed = Event()
+    second_attempting = Event()
+    second_flushed = Event()
+    first_rolled_back = Event()
+
+    with TestClient(app):
+        with app.state.session_factory() as setup:
+            searches = [
+                SavedSearchRepository(setup).create(
+                    name=f"Search {index}",
+                    criteria=SearchCriteria(keywords=["python"]),
+                    sources=["freework"],
+                )
+                for index in range(2)
+            ]
+            runs = [
+                SyncRunRepository(setup)
+                .start(search.id, requested_sources=["freework"])
+                .id
+                for search in searches
+            ]
+            setup.commit()
+
+        def claim_then_rollback() -> None:
+            with app.state.session_factory() as session:
+                assert SyncRunRepository(session).claim_pending(runs[0]) is not None
+                first_flushed.set()
+                assert second_attempting.wait(timeout=2)
+                second_flushed.wait(timeout=0.2)
+                session.rollback()
+                first_rolled_back.set()
+
+        def claim_then_commit() -> None:
+            assert first_flushed.wait(timeout=2)
+            with app.state.session_factory() as session:
+                second_attempting.set()
+                assert SyncRunRepository(session).claim_pending(runs[1]) is not None
+                second_flushed.set()
+                assert first_rolled_back.wait(timeout=2)
+                session.commit()
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            first = workers.submit(claim_then_rollback)
+            second = workers.submit(claim_then_commit)
+            first.result(timeout=3)
+            second.result(timeout=3)
+
+        with app.state.session_factory() as observer:
+            statuses = [
+                SyncRunRepository(observer).get(run_id).status  # type: ignore[union-attr]
+                for run_id in runs
+            ]
+
+    assert statuses == ["pending", "running"]
+
+
+def test_sync_source_subset_rejects_duplicates(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if duplicate sync sources are silently collapsed into a set."""
+
+    monkeypatch.setattr(SyncService, "execute", lambda self, run_id: None)
+    search_id = create_search(client, sources=["freework", "linkedin"])
+
+    response = client.post(
+        "/api/syncs",
+        json={"savedSearchId": search_id, "sources": ["freework", "freework"]},
+    )
+
+    assert response.status_code == 422
 
 
 def test_run_uses_environment_database_and_fixed_loopback_binding(

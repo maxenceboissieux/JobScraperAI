@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
+from jobscraper.db.models import SavedSearch
 from jobscraper.repositories.saved_searches import SavedSearchRepository
 
 SEARCH_PAYLOAD = {
@@ -170,6 +172,54 @@ def test_duplicate_saved_search_sources_return_422(
         )
 
     assert response.status_code == 422
+
+
+def test_legacy_duplicate_sources_remain_readable(
+    client: TestClient, session: Session
+) -> None:
+    """Fails if strict write validation bricks a legacy search response."""
+
+    session.add(
+        SavedSearch(
+            name="Legacy duplicates",
+            keywords=["python"],
+            location="France",
+            sources=["freework", "freework"],
+        )
+    )
+    session.commit()
+
+    response = client.get("/api/searches")
+
+    assert response.status_code == 200
+    assert response.json()[0]["sources"] == ["freework", "freework"]
+
+
+def test_legacy_unknown_enum_like_criteria_remain_readable(
+    client: TestClient, session: Session
+) -> None:
+    """Fails if old enum-like values raise response validation errors."""
+
+    session.add(
+        SavedSearch(
+            name="Legacy criteria",
+            keywords=["python"],
+            location="France",
+            contract_types=["permanent"],
+            experience_levels=["expert"],
+            workplace_types=["anywhere"],
+            sources=["freework"],
+        )
+    )
+    session.commit()
+
+    response = client.get("/api/searches")
+
+    assert response.status_code == 200
+    body = response.json()[0]
+    assert body["contractTypes"] == ["permanent"]
+    assert body["experienceLevels"] == ["expert"]
+    assert body["workplaceTypes"] == ["anywhere"]
 
 
 def test_search_persistence_failure_is_sanitized_and_next_request_works(

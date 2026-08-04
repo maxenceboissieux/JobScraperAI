@@ -64,25 +64,30 @@ class SyncRunRepository:
             with self.session.begin_nested():
                 return self.start(saved_search_id, requested_sources=requested_sources)
         except IntegrityError:
-            return None
+            self.session.rollback()
+            if self._active_run_appears(saved_search_id):
+                return None
+            raise
         except OperationalError as exc:
             if "database is locked" not in str(exc.orig).casefold():
                 raise
             self.session.rollback()
-            for attempt in range(4):
-                try:
-                    if self._active_run_exists(saved_search_id):
-                        return None
-                except OperationalError as observation_error:
-                    if (
-                        "database is locked"
-                        not in str(observation_error.orig).casefold()
-                    ):
-                        raise
-                self.session.rollback()
-                if attempt < 3:
-                    sleep(0.01 * (attempt + 1))
+            if self._active_run_appears(saved_search_id):
+                return None
             raise
+
+    def _active_run_appears(self, saved_search_id: str) -> bool:
+        for attempt in range(4):
+            try:
+                if self._active_run_exists(saved_search_id):
+                    return True
+            except OperationalError as observation_error:
+                if "database is locked" not in str(observation_error.orig).casefold():
+                    raise
+            self.session.rollback()
+            if attempt < 3:
+                sleep(0.01 * (attempt + 1))
+        return False
 
     def _active_run_exists(self, saved_search_id: str) -> bool:
         return (
@@ -158,14 +163,29 @@ class SyncRunRepository:
         """Atomically claim one pending run, returning ``None`` if already claimed."""
 
         claimed_at = started_at or utc_now()
-        result = cast(
-            CursorResult[Any],
-            self.session.execute(
-                update(SyncRun)
-                .where(SyncRun.id == run_id, SyncRun.status == "pending")
-                .values(status="running", started_at=claimed_at)
-            ),
-        )
+        result: CursorResult[Any] | None = None
+        last_lock_error: OperationalError | None = None
+        for attempt in range(10):
+            try:
+                result = cast(
+                    CursorResult[Any],
+                    self.session.execute(
+                        update(SyncRun)
+                        .where(SyncRun.id == run_id, SyncRun.status == "pending")
+                        .values(status="running", started_at=claimed_at)
+                    ),
+                )
+                break
+            except OperationalError as exc:
+                if "locked" not in str(exc.orig).casefold():
+                    raise
+                last_lock_error = exc
+                self.session.rollback()
+                if attempt < 9:
+                    sleep(0.01 * (attempt + 1))
+        if result is None:
+            assert last_lock_error is not None
+            raise last_lock_error
         if result.rowcount != 1:
             return None
         self.session.flush()

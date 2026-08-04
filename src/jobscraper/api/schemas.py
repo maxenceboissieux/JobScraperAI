@@ -122,8 +122,23 @@ class SearchUpdate(ApiModel):
         return value
 
 
-class SavedSearchResponse(SearchFields):
+class SavedSearchResponse(ApiModel):
+    """Tolerant read model for rows created before current write validation."""
+
     id: str
+    name: str
+    keywords: list[str]
+    title: str | None
+    location: str
+    radius_km: int | None
+    contract_types: list[str]
+    experience_levels: list[str]
+    workplace_types: list[str]
+    companies: list[str]
+    exclude_companies: list[str]
+    salary_min: int | None
+    sources: list[str]
+    active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -179,6 +194,15 @@ class JobsPage(ApiModel):
 class StartSyncRequest(ApiModel):
     saved_search_id: str = Field(min_length=1)
     sources: list[SourceName] | None = Field(default=None, min_length=1)
+
+    @field_validator("sources")
+    @classmethod
+    def sync_sources_are_unique(
+        cls, value: list[SourceName] | None
+    ) -> list[SourceName] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("Une source ne peut être sélectionnée qu’une fois.")
+        return value
 
 
 class RetrySyncRequest(ApiModel):
