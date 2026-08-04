@@ -289,7 +289,7 @@ export function App() {
     <RefreshButton
       hasSelectedSearch={selectedSearch !== null}
       isStarting={
-        syncRun.isStarting ||
+        syncRun.isStartingSearch(selectedSearch?.id) ||
         (syncRun.isActive && syncRun.run?.savedSearchId === selectedSearch?.id)
       }
       onRefresh={() => {

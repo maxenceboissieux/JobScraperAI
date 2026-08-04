@@ -209,6 +209,40 @@ describe("synchronisation manuelle", () => {
     expect(refresh).toBeDisabled();
   });
 
+  it("verrouille seulement la recherche en cours de lancement", async () => {
+    let resolveStart!: (run: SyncRun) => void;
+    const start = new Promise<SyncRun>((resolve) => {
+      resolveStart = resolve;
+    });
+    const starts: string[] = [];
+    server.use(
+      http.post(`${origin}/api/syncs`, async ({ request }) => {
+        starts.push(String((await request.json() as { savedSearchId: string }).savedSearchId));
+        return HttpResponse.json(await start, { status: 202 });
+      }),
+    );
+    const { user } = renderAppWithSync(null, {
+      searches: [SAVED_SEARCH, OTHER_SAVED_SEARCH],
+    });
+
+    const selector = await screen.findByRole("combobox", {
+      name: "Recherche enregistrée",
+    });
+    const refresh = screen.getByRole("button", { name: "Actualiser" });
+    await user.click(refresh);
+    await waitFor(() => expect(starts).toEqual([SAVED_SEARCH.id]));
+    expect(refresh).toBeDisabled();
+
+    await user.selectOptions(selector, OTHER_SAVED_SEARCH.id);
+    await waitFor(() => expect(refresh).toBeEnabled());
+
+    await user.selectOptions(selector, SAVED_SEARCH.id);
+    expect(refresh).toBeDisabled();
+
+    resolveStart({ ...RUNNING_SYNC, savedSearchId: SAVED_SEARCH.id });
+    await screen.findByText("Free-Work : en cours");
+  });
+
   it("verrouille seulement la recherche déjà synchronisée", async () => {
     const starts: string[] = [];
     server.use(

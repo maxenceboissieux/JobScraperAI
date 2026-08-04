@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../../api/client";
@@ -32,6 +32,7 @@ export function useSyncRun() {
   const queryClient = useQueryClient();
   const invalidatedSources = useRef(new Set<string>());
   const observedRun = useRef<ObservedRun | null>(null);
+  const [startingSearchCounts, setStartingSearchCounts] = useState(() => new Map<string, number>());
   const latestSyncQuery = useQuery({
     queryKey: SYNC_RUN_QUERY_KEY,
     queryFn: ({ signal }) => api.getLatestSync(signal),
@@ -57,12 +58,30 @@ export function useSyncRun() {
 
   const startMutation = useMutation({
     mutationFn: (savedSearchId: string) => api.startSync({ savedSearchId }),
-    onMutate: async () => {
+    onMutate: async (savedSearchId) => {
+      setStartingSearchCounts((counts) => {
+        const next = new Map(counts);
+        next.set(savedSearchId, (next.get(savedSearchId) ?? 0) + 1);
+        return next;
+      });
       await queryClient.cancelQueries({ queryKey: SYNC_RUN_QUERY_KEY });
     },
     onSuccess: (run) => {
       queryClient.setQueryData(SYNC_RUN_QUERY_KEY, run);
       invalidateCompletedSources(run);
+    },
+    onSettled: (_data, _error, savedSearchId) => {
+      setStartingSearchCounts((counts) => {
+        const count = counts.get(savedSearchId) ?? 0;
+        if (count === 0) return counts;
+        const next = new Map(counts);
+        if (count === 1) {
+          next.delete(savedSearchId);
+        } else {
+          next.set(savedSearchId, count - 1);
+        }
+        return next;
+      });
     },
   });
   const retryMutation = useMutation({
@@ -103,6 +122,11 @@ export function useSyncRun() {
     (savedSearchId: string) => startMutation.mutateAsync(savedSearchId),
     [startMutation],
   );
+  const isStartingSearch = useCallback(
+    (savedSearchId: string | undefined) =>
+      savedSearchId !== undefined && (startingSearchCounts.get(savedSearchId) ?? 0) > 0,
+    [startingSearchCounts],
+  );
   const retrySource = useCallback(
     (runId: string, source: string) => {
       if (!isSourceName(source)) {
@@ -123,7 +147,7 @@ export function useSyncRun() {
   return {
     run: run ?? null,
     errorMessage,
-    isStarting: startMutation.isPending,
+    isStartingSearch,
     isActive: isActive(run),
     isRetrying: retryMutation.isPending,
     startSync,
