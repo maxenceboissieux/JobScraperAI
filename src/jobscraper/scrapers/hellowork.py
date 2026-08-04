@@ -84,6 +84,9 @@ class HelloWorkScraper(BaseScraper):
         self._begin_search()
         jobs_found = 0
         max_results = criteria.max_results
+        if jobs_found >= max_results:
+            return
+
         seen_ids: set[str] = set()
         search_incomplete = False
 

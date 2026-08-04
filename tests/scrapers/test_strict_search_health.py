@@ -314,6 +314,15 @@ def test_hellowork_applies_max_results_across_queries(
     assert scraper.search_complete is False
 
 
+def test_hellowork_zero_max_results_remains_incomplete() -> None:
+    scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
+
+    jobs = list(scraper.search(SearchCriteria(max_results=0)))
+
+    assert jobs == []
+    assert scraper.search_complete is False
+
+
 def test_hellowork_rejects_duplicate_only_later_page_in_one_query(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
