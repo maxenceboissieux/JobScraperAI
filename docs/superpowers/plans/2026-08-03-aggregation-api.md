@@ -198,7 +198,7 @@ git commit -m "feat: classify cross-source duplicates"
 **Interfaces:**
 - Produces: `ScraperRegistry.create(source: str) -> BaseScraper`; `SyncService.create_run(saved_search_id: str, only_sources: set[str] | None = None) -> str`; `SyncService.execute(run_id: str) -> None`; `SyncService.run(saved_search_id: str, only_sources: set[str] | None = None) -> str` as the synchronous CLI convenience; statuses `pending/running/succeeded/partial/failed`.
 
-- [ ] **Step 1: Write a failing mixed-success orchestration test**
+- [x] **Step 1: Write a failing mixed-success orchestration test**
 
 ```python
 run_id = service.run(saved_search.id)
@@ -211,25 +211,25 @@ assert jobs.count() == 1
 
 The fake Free-Work scraper yields one job; the fake LinkedIn scraper raises `requests.Timeout`.
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `.venv/bin/python -m pytest tests/services/test_sync.py -v`
 
-- [ ] **Step 3: Implement registry and sync service**
+- [x] **Step 3: Implement registry and sync service**
 
 `create_run()` persists the pending run and its requested sources. `execute()` changes it to running and, for each source, records running state, iterates offers, upserts, attaches the saved search, evaluates same-company candidates for duplicates, records the source result, and closes the scraper in `finally`. `run()` calls both methods synchronously. Catch errors at the source boundary and store a sanitized French summary plus full local log context.
 
-- [ ] **Step 4: Add source-only retry and inactive listing tests**
+- [x] **Step 4: Add source-only retry and inactive listing tests**
 
 Assert `only_sources={"linkedin"}` does not call other adapters. Assert a successful complete sync updates `last_seen_at`; only a later successful source scan may mark unseen listings inactive.
 
-- [ ] **Step 5: Verify sync tests**
+- [x] **Step 5: Verify sync tests**
 
 Run: `.venv/bin/python -m pytest tests/services/test_sync.py -v`
 
 Expected: success, partial failure, retry and safe-inactivation tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/jobscraper/scrapers/registry.py src/jobscraper/services/sync.py tests/services/test_sync.py
