@@ -290,7 +290,7 @@ git commit -m "feat: add cached job-detail drawer"
 - Consumes: sync API methods and statuses.
 - Produces: manual refresh, five-second polling while active, source retry, and latest-sync summary.
 
-- [ ] **Step 1: Write failing partial-sync test**
+- [x] **Step 1: Write failing partial-sync test**
 
 ```tsx
 it("reste utilisable et relance uniquement la source en échec", async () => {
@@ -303,19 +303,19 @@ it("reste utilisable et relance uniquement la source en échec", async () => {
 })
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `cd frontend && pnpm test src/features/sync/sync.test.tsx`
 
-- [ ] **Step 3: Implement refresh and progress**
+- [x] **Step 3: Implement refresh and progress**
 
 Disable only duplicate launch actions, not the result grid. Poll every five seconds while status is pending/running and stop on succeeded/partial/failed. Invalidate job queries after any source completes successfully.
 
-- [ ] **Step 4: Verify sync UI**
+- [x] **Step 4: Verify sync UI**
 
 Run: `cd frontend && pnpm test src/features/sync/sync.test.tsx && pnpm typecheck`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src
