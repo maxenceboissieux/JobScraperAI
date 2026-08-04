@@ -40,6 +40,37 @@ describe("parseJobDescription", () => {
     ]);
   });
 
+  it("ne promeut pas un titre connu présent dans une phrase ou un autre mot", () => {
+    expect(
+      parseJobDescription("Les missions du poste sont variées.\nLes commissions internes sont publiées."),
+    ).toEqual([
+      {
+        type: "paragraph",
+        text: "Les missions du poste sont variées.\nLes commissions internes sont publiées.",
+      },
+    ]);
+  });
+
+  it("reconnaît les libellés sans tenir compte de la casse", () => {
+    expect(parseJobDescription("about us\nWe build useful tools.")).toEqual([
+      { type: "heading", text: "about us" },
+      { type: "paragraph", text: "We build useful tools." },
+    ]);
+  });
+
+  it("applique les limites de mots et de majuscules aux titres génériques", () => {
+    expect(parseJobDescription("ROLE API")).toEqual([{ type: "heading", text: "ROLE API" }]);
+    expect(parseJobDescription("ROLE")).toEqual([{ type: "paragraph", text: "ROLE" }]);
+    expect(parseJobDescription("ABCDE ef")).toEqual([{ type: "heading", text: "ABCDE ef" }]);
+    expect(parseJobDescription("ABCD efg")).toEqual([{ type: "paragraph", text: "ABCD efg" }]);
+    expect(
+      parseJobDescription("ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT"),
+    ).toEqual([{ type: "heading", text: "ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT" }]);
+    expect(
+      parseJobDescription("ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE"),
+    ).toEqual([{ type: "paragraph", text: "ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE" }]);
+  });
+
   it("convertit les marqueurs explicites en liste", () => {
     expect(parseJobDescription("Vos missions :\n- Concevoir\n• Tester\n* Documenter")).toEqual([
       { type: "heading", text: "Vos missions" },

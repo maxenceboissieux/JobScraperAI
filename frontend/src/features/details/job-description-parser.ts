@@ -35,6 +35,33 @@ function isSectionLabel(value: string) {
   return SECTION_LABELS.some((label) => label.localeCompare(value, undefined, { sensitivity: "accent" }) === 0);
 }
 
+function hasStructuralContextBefore(description: string, index: number) {
+  return /(?:^|\n)[\t ]*$|[.!?]\s*$|>\s*$/u.test(description.slice(0, index));
+}
+
+function hasStructuralContextAfter(description: string, index: number) {
+  const remainder = description.slice(index);
+  return /^[\t ]*(?:$|\n|:)/u.test(remainder) || /^\p{Lu}/u.test(remainder);
+}
+
+function insertSectionBoundaries(description: string) {
+  let result = "";
+  let cursor = 0;
+
+  for (const match of description.matchAll(sectionLabelPattern)) {
+    const index = match.index ?? 0;
+    const label = match[0];
+    const end = index + label.length;
+    result += description.slice(cursor, index);
+    result += hasStructuralContextBefore(description, index) && hasStructuralContextAfter(description, end)
+      ? `\n${label}\n`
+      : label;
+    cursor = end;
+  }
+
+  return result + description.slice(cursor);
+}
+
 function isUppercaseHeading(value: string) {
   const words = value.match(/[\p{L}\p{N}]+/gu) ?? [];
   const letters = value.match(/\p{L}/gu) ?? [];
@@ -59,7 +86,7 @@ function addList(blocks: DescriptionBlock[], items: string[]) {
 
 export function parseJobDescription(description: string): DescriptionBlock[] {
   const normalized = description.replace(/\r\n?/g, "\n").replace(/^[\t ]+$/gm, "");
-  const lines = normalized.replace(sectionLabelPattern, "\n$1\n").split("\n");
+  const lines = insertSectionBoundaries(normalized).split("\n");
   const blocks: DescriptionBlock[] = [];
   const paragraphLines: string[] = [];
   const listItems: string[] = [];
