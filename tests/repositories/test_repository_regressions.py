@@ -545,6 +545,34 @@ def test_sync_retry_clears_failure_state_and_finish_is_idempotent(
     assert repeated.finished_at == NOW + timedelta(minutes=2)
 
 
+def test_latest_sync_run_can_be_scoped_to_one_saved_search(
+    session: Session,
+) -> None:
+    """Fails if another search's newer run hides the requested search's run."""
+    first_search_id = saved_search(session, "First")
+    second_search_id = saved_search(session, "Second")
+    sync_runs = SyncRunRepository(session)
+    first_run = sync_runs.start(
+        first_search_id,
+        requested_sources=["freework"],
+        status="failed",
+    )
+    second_run = sync_runs.start(
+        second_search_id,
+        requested_sources=["wttj"],
+        status="pending",
+    )
+
+    assert sync_runs.latest() == second_run
+    assert sync_runs.latest(saved_search_id=first_search_id) == first_run
+    assert (
+        sync_runs.latest(
+            saved_search_id="00000000-0000-0000-0000-000000000000"
+        )
+        is None
+    )
+
+
 def test_file_sqlite_concurrency_keeps_listing_search_and_result_uniques(
     tmp_path: Path,
 ) -> None:

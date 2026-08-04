@@ -69,9 +69,9 @@ export function App() {
   const [editor, setEditor] = useState<EditorSession>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const syncRun = useSyncRun();
   const selectedJobId = searchParams.get("job");
   const selectedJobTrigger = useRef<HTMLElement | null>(null);
+  const previousSelectedJobId = useRef(selectedJobId);
 
   const searchesQuery = useQuery({
     queryKey: SEARCHES_QUERY_KEY,
@@ -89,6 +89,7 @@ export function App() {
     }
     return searches.find((search) => search.active) ?? searches[0] ?? null;
   }, [requestedSearchId, searches, searchesQuery.isSuccess]);
+  const syncRun = useSyncRun(selectedSearch?.id);
 
   function selectSearch(searchId: string | null, replace = false) {
     const next = new URLSearchParams(searchParams);
@@ -114,13 +115,20 @@ export function App() {
   function closeJob() {
     const next = new URLSearchParams(searchParams);
     next.delete("job");
-    const trigger = selectedJobTrigger.current;
     setSearchParams(next);
-    if (trigger?.isConnected) {
-      trigger.focus();
-    }
-    selectedJobTrigger.current = null;
   }
+
+  useEffect(() => {
+    const previousJobId = previousSelectedJobId.current;
+    if (previousJobId !== null && selectedJobId === null) {
+      const trigger = selectedJobTrigger.current;
+      if (trigger?.isConnected) {
+        trigger.focus();
+      }
+      selectedJobTrigger.current = null;
+    }
+    previousSelectedJobId.current = selectedJobId;
+  }, [selectedJobId]);
 
   useEffect(() => {
     if (!searchesQuery.isSuccess) {

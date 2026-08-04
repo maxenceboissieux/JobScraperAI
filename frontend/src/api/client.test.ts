@@ -233,6 +233,21 @@ describe("api", () => {
     );
   });
 
+  it("récupère la dernière synchronisation de la recherche demandée", async () => {
+    server.use(
+      http.get(`${origin}/api/syncs/latest`, ({ request }) => {
+        expect(new URL(request.url).search).toBe(
+          "?savedSearchId=search%2F%C3%A9t%C3%A9",
+        );
+        return HttpResponse.json(syncRun);
+      }),
+    );
+
+    await expect(
+      api.getLatestSync({ savedSearchId: "search/été" }),
+    ).resolves.toEqual(syncRun);
+  });
+
   it.each([
     ["JSON null", HttpResponse.json(null)],
     ["statut 204", new HttpResponse(null, { status: 204 })],

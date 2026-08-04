@@ -103,11 +103,16 @@ class SyncRunRepository:
             is not None
         )
 
-    def latest(self) -> SyncRun | None:
-        """Return the globally newest synchronization attempt."""
+    def latest(self, *, saved_search_id: str | None = None) -> SyncRun | None:
+        """Return the newest attempt globally or for one saved search."""
 
+        statement = select(SyncRun)
+        if saved_search_id is not None:
+            statement = statement.join(
+                SavedSearch, SyncRun.saved_search_id == SavedSearch.pk
+            ).where(SavedSearch.id == saved_search_id)
         return self.session.scalar(
-            select(SyncRun).order_by(SyncRun.created_at.desc(), SyncRun.pk.desc())
+            statement.order_by(SyncRun.created_at.desc(), SyncRun.pk.desc())
         )
 
     def source_results(self, run_id: str) -> list[SourceSyncResult]:

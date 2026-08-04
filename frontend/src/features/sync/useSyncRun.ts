@@ -15,11 +15,6 @@ const SOURCE_NAMES = new Set<SourceName>([
   "adzuna",
 ]);
 
-type ObservedRun = {
-  id: string;
-  sourceStatuses: Map<string, string>;
-};
-
 function isActive(run: SyncRun | null | undefined): boolean {
   return run !== null && run !== undefined && ACTIVE_SYNC_STATUSES.has(run.status);
 }
@@ -28,29 +23,44 @@ function isSourceName(source: string): source is SourceName {
   return SOURCE_NAMES.has(source as SourceName);
 }
 
-export function useSyncRun() {
+function syncRunQueryKey(savedSearchId: string | undefined) {
+  return [...SYNC_RUN_QUERY_KEY, savedSearchId ?? null] as const;
+}
+
+export function useSyncRun(savedSearchId?: string) {
   const queryClient = useQueryClient();
-  const invalidatedSources = useRef(new Set<string>());
-  const observedRun = useRef<ObservedRun | null>(null);
+  const invalidatedProgressVersions = useRef(new Set<string>());
   const [startingSearchCounts, setStartingSearchCounts] = useState(() => new Map<string, number>());
   const latestSyncQuery = useQuery({
-    queryKey: SYNC_RUN_QUERY_KEY,
-    queryFn: ({ signal }) => api.getLatestSync(signal),
+    queryKey: syncRunQueryKey(savedSearchId),
+    queryFn: ({ signal }) => api.getLatestSync({ savedSearchId, signal }),
+    enabled: savedSearchId !== undefined,
     refetchInterval: (query) => (isActive(query.state.data) ? 5_000 : false),
     refetchIntervalInBackground: true,
   });
 
   const invalidateCompletedSources = useCallback(
     (run: SyncRun, sources = run.sources) => {
-      const completed = sources.filter((source) => source.status === "succeeded");
-      const newCompletions = completed.filter((source) => {
-        const key = `${run.id}:${source.source}`;
-        if (invalidatedSources.current.has(key)) return false;
-        invalidatedSources.current.add(key);
+      const productive = sources.filter(
+        (source) =>
+          source.status === "succeeded" ||
+          (source.status === "partial" && source.offersPersisted > 0),
+      );
+      const newCompletions = productive.filter((source) => {
+        const key = [
+          run.id,
+          source.source,
+          source.status,
+          source.offersPersisted,
+          source.finishedAt ?? "",
+        ].join(":");
+        if (invalidatedProgressVersions.current.has(key)) return false;
+        invalidatedProgressVersions.current.add(key);
         return true;
       });
       if (newCompletions.length > 0) {
         void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        void queryClient.invalidateQueries({ queryKey: ["job-details"] });
       }
     },
     [queryClient],
@@ -64,10 +74,10 @@ export function useSyncRun() {
         next.set(savedSearchId, (next.get(savedSearchId) ?? 0) + 1);
         return next;
       });
-      await queryClient.cancelQueries({ queryKey: SYNC_RUN_QUERY_KEY });
+      await queryClient.cancelQueries({ queryKey: syncRunQueryKey(savedSearchId) });
     },
     onSuccess: (run) => {
-      queryClient.setQueryData(SYNC_RUN_QUERY_KEY, run);
+      queryClient.setQueryData(syncRunQueryKey(run.savedSearchId), run);
       invalidateCompletedSources(run);
     },
     onSettled: (_data, _error, savedSearchId) => {
@@ -85,37 +95,29 @@ export function useSyncRun() {
     },
   });
   const retryMutation = useMutation({
-    mutationFn: ({ runId, source }: { runId: string; source: SourceName }) =>
+    mutationFn: ({
+      runId,
+      source,
+    }: {
+      runId: string;
+      source: SourceName;
+      savedSearchId: string;
+    }) =>
       api.retrySyncSource(runId, source),
-    onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey: SYNC_RUN_QUERY_KEY });
+    onMutate: async ({ savedSearchId }) => {
+      await queryClient.cancelQueries({ queryKey: syncRunQueryKey(savedSearchId) });
     },
     onSuccess: (run) => {
-      queryClient.setQueryData(SYNC_RUN_QUERY_KEY, run);
+      queryClient.setQueryData(syncRunQueryKey(run.savedSearchId), run);
       invalidateCompletedSources(run);
     },
   });
 
   const run = latestSyncQuery.data;
   useEffect(() => {
-    if (run === undefined || run === null) {
-      observedRun.current = null;
-      return;
+    if (run !== undefined && run !== null) {
+      invalidateCompletedSources(run);
     }
-    const previous = observedRun.current;
-    invalidateCompletedSources(
-      run,
-      run.sources.filter(
-        (source) =>
-          source.status === "succeeded" &&
-          (previous?.id !== run.id ||
-            previous.sourceStatuses.get(source.source) !== "succeeded"),
-      ),
-    );
-    observedRun.current = {
-      id: run.id,
-      sourceStatuses: new Map(run.sources.map((source) => [source.source, source.status])),
-    };
   }, [invalidateCompletedSources, run]);
 
   const startSync = useCallback(
@@ -132,9 +134,17 @@ export function useSyncRun() {
       if (!isSourceName(source)) {
         return Promise.reject(new Error("La source à relancer est inconnue."));
       }
-      return retryMutation.mutateAsync({ runId, source });
+      const runSearchId = run?.id === runId ? run.savedSearchId : savedSearchId;
+      if (runSearchId === undefined) {
+        return Promise.reject(new Error("La recherche à synchroniser est inconnue."));
+      }
+      return retryMutation.mutateAsync({
+        runId,
+        source,
+        savedSearchId: runSearchId,
+      });
     },
-    [retryMutation],
+    [retryMutation, run, savedSearchId],
   );
   const errorMessage = latestSyncQuery.isError
     ? "Impossible de charger l’état de la synchronisation. Les offres affichées restent disponibles."

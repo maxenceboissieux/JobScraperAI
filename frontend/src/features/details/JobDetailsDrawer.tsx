@@ -2,6 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { api } from "../../api/client";
+import type { JobDetails } from "../../api/types";
+import {
+  formatContractType,
+  formatExperienceLevel,
+  formatFrenchDate,
+  formatSalary,
+  formatWorkplace,
+} from "../../formatters";
 import { PossibleDuplicates } from "./PossibleDuplicates";
 import { SourceLinks } from "./SourceLinks";
 
@@ -45,6 +53,36 @@ function DetailChips({
         ))}
       </ul>
     </section>
+  );
+}
+
+function JobMetadata({ job }: { job: JobDetails }) {
+  const items = [
+    { label: "Entreprise", value: job.company.trim() || null },
+    { label: "Lieu", value: job.location.trim() || null },
+    { label: "Contrat", value: formatContractType(job.contractType) },
+    { label: "Expérience", value: formatExperienceLevel(job.experienceLevel) },
+    { label: "Organisation", value: formatWorkplace(job.remote) },
+    { label: "Salaire", value: formatSalary(job) },
+    { label: "Publication", value: formatFrenchDate(job.postedAt) },
+  ].filter((item): item is { label: string; value: string } => item.value !== null);
+
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <dl
+      className="job-drawer__metadata"
+      role="group"
+      aria-label="Informations sur l’offre"
+    >
+      {items.map((item) => (
+        <div key={item.label}>
+          <dt>{item.label}</dt>{" "}
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -155,6 +193,7 @@ export function JobDetailsDrawer({ jobId, onClose, onSelectJob }: JobDetailsDraw
             {updateLabel ? (
               <p className="job-drawer__updated-at">{updateLabel}</p>
             ) : null}
+            <JobMetadata job={detailsQuery.data} />
             {detailsQuery.data.description?.trim() ? (
               <section
                 className="job-drawer__description"

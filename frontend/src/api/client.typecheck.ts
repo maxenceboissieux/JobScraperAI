@@ -16,4 +16,6 @@ if (false) {
 
   const filters: JobFilters = { period: "3d", limit: 24, offset: 0 };
   void api.getJobs(filters);
+
+  void api.getLatestSync({ savedSearchId: "search-1" });
 }

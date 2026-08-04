@@ -1,13 +1,5 @@
 import type { SourceProgress, SyncRun } from "../../api/types";
-
-const SOURCE_LABELS: Record<string, string> = {
-  freework: "Free-Work",
-  linkedin: "LinkedIn",
-  hellowork: "HelloWork",
-  francetravail: "France Travail",
-  wttj: "Welcome to the Jungle",
-  adzuna: "Adzuna",
-};
+import { formatFrenchDateTime, formatSourceName } from "../../formatters";
 
 const SOURCE_STATUS_LABELS: Record<string, string> = {
   pending: "en attente",
@@ -33,12 +25,23 @@ type SyncProgressProps = {
   onRetryLatest: () => void;
 };
 
-function sourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source;
-}
-
 function sourceStatusLabel(status: SourceProgress["status"]): string {
   return SOURCE_STATUS_LABELS[status] ?? status;
+}
+
+function sourceCountsLabel(source: SourceProgress): string {
+  const seenLabel = source.offersSeen === 1 ? "offre vue" : "offres vues";
+  const persistedLabel =
+    source.offersPersisted === 1 ? "offre enregistrée" : "offres enregistrées";
+  return `${source.offersSeen} ${seenLabel} · ${source.offersPersisted} ${persistedLabel}`;
+}
+
+function sourceFinishedLabel(finishedAt: string | null): string | null {
+  if (finishedAt === null) {
+    return null;
+  }
+  const formatted = formatFrenchDateTime(finishedAt);
+  return formatted === null ? null : `Terminée le ${formatted}`;
 }
 
 export function SyncProgress({
@@ -75,13 +78,22 @@ export function SyncProgress({
       </p>
       <ul className="sync-progress__sources" aria-label="Progression des sources">
         {run.sources.map((source) => {
-          const label = sourceLabel(source.source);
+          const label = formatSourceName(source.source);
+          const finishedLabel = sourceFinishedLabel(source.finishedAt);
           return (
             <li key={source.source}>
               <span>
                 {label} : {sourceStatusLabel(source.status)}
               </span>
-              {source.status === "failed" ? (
+              <small className="sync-progress__metadata">
+                {sourceCountsLabel(source)}
+              </small>
+              {finishedLabel ? (
+                <small className="sync-progress__metadata">
+                  <time dateTime={source.finishedAt ?? undefined}>{finishedLabel}</time>
+                </small>
+              ) : null}
+              {source.status === "failed" || source.status === "partial" ? (
                 <button
                   type="button"
                   className="button button--quiet"
@@ -91,7 +103,9 @@ export function SyncProgress({
                   Relancer {label}
                 </button>
               ) : null}
-              {source.errorMessage ? <small>{source.errorMessage}</small> : null}
+              {source.errorMessage ? (
+                <small className="sync-progress__error">{source.errorMessage}</small>
+              ) : null}
             </li>
           );
         })}

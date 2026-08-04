@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -162,8 +162,11 @@ def _start(
 
 
 @router.get("/latest", response_model=SyncRunResponse | None)
-def latest_sync(session: Session = Depends(get_session)) -> SyncRunResponse | None:
-    run = SyncRunRepository(session).latest()
+def latest_sync(
+    saved_search_id: str | None = Query(default=None, alias="savedSearchId"),
+    session: Session = Depends(get_session),
+) -> SyncRunResponse | None:
+    run = SyncRunRepository(session).latest(saved_search_id=saved_search_id)
     return None if run is None else _response(session, run)
 
 

@@ -201,6 +201,7 @@ h2 {
 
 .sync-progress__sources li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
@@ -212,7 +213,13 @@ h2 {
   font-size: 0.7rem;
 }
 
-.sync-progress__sources small {
+.sync-progress__metadata {
+  color: var(--muted);
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.sync-progress__error {
   color: var(--danger);
   font-size: inherit;
 }

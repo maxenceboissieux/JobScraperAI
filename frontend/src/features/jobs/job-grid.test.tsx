@@ -104,6 +104,30 @@ describe("grille des offres", () => {
     expect(within(card).getByText("Doublon possible")).toBeVisible();
   });
 
+  it("traduit les slugs API sur les cartes", async () => {
+    renderAppWithJobs([
+      {
+        ...POSSIBLE_DUPLICATE_JOB,
+        contractType: "cdi",
+        sources: [
+          {
+            source: "freework",
+            url: "https://example.test/free-work",
+            active: true,
+          },
+        ],
+      },
+    ]);
+
+    const card = await screen.findByRole("button", {
+      name: "Voir l’offre Développeur Python",
+    });
+    expect(within(card).getByText("Free-Work")).toBeVisible();
+    expect(card).toHaveTextContent("CDI");
+    expect(card).not.toHaveTextContent("freework");
+    expect(card).not.toHaveTextContent("cdi");
+  });
+
   it("affiche un état vide lorsque l’API ne retourne aucune offre", async () => {
     renderAppWithJobs([]);
 

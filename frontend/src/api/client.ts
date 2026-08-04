@@ -1,4 +1,5 @@
 import type {
+  GetLatestSyncOptions,
   GetSearchesOptions,
   JobDetails,
   JobFilters,
@@ -253,7 +254,14 @@ export const api = {
     });
   },
 
-  getLatestSync(signal?: AbortSignal): Promise<SyncRun | null> {
-    return request<SyncRun>("/api/syncs/latest", { signal }, { allowNull: true });
+  getLatestSync(options: GetLatestSyncOptions = {}): Promise<SyncRun | null> {
+    const params = new URLSearchParams();
+    appendValue(params, "savedSearchId", options.savedSearchId);
+    const query = params.toString();
+    return request<SyncRun>(
+      `/api/syncs/latest${query ? `?${query}` : ""}`,
+      { signal: options.signal },
+      { allowNull: true },
+    );
   },
 };

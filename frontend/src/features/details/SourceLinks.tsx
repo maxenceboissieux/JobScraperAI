@@ -1,4 +1,5 @@
 import type { SourceLink } from "../../api/types";
+import { formatSourceName } from "../../formatters";
 
 type SourceLinksProps = {
   sources: SourceLink[];
@@ -20,7 +21,7 @@ export function SourceLinks({ sources }: SourceLinksProps) {
             rel="noreferrer"
             key={`${source.source}:${source.url}`}
           >
-            {source.source}
+            {formatSourceName(source.source)}
             <span aria-hidden="true"> ↗</span>
           </a>
         ))}

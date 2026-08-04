@@ -180,3 +180,8 @@ export type GetSearchesOptions = {
   active?: boolean;
   signal?: AbortSignal;
 };
+
+export type GetLatestSyncOptions = {
+  savedSearchId?: string;
+  signal?: AbortSignal;
+};

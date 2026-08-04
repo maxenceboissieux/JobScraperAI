@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -186,6 +186,71 @@ describe("détails d’une offre", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("restaure le focus avec Back puis rouvre la même offre avec Forward", async () => {
+    const { user } = renderAppWithJobs([JOB], {
+      details: DETAILS_WITH_DUPLICATE,
+      initialUrl:
+        "/?search=search-python&period=7d&source=freework&source=linkedin",
+    });
+    const trigger = await screen.findByRole("button", {
+      name: "Voir l’offre Développeur Python",
+    });
+    await user.click(trigger);
+    expect(
+      await screen.findByRole("dialog", { name: "Détails de l’offre" }),
+    ).toBeVisible();
+
+    act(() => window.history.back());
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Détails de l’offre" })).toBeNull(),
+    );
+    expect(trigger).toHaveFocus();
+    let params = new URLSearchParams(window.location.search);
+    expect(params.has("job")).toBe(false);
+    expect(params.get("search")).toBe("search-python");
+    expect(params.get("period")).toBe("7d");
+    expect(params.getAll("source")).toEqual(["freework", "linkedin"]);
+
+    act(() => window.history.forward());
+
+    expect(
+      await screen.findByRole("dialog", { name: "Détails de l’offre" }),
+    ).toBeVisible();
+    params = new URLSearchParams(window.location.search);
+    expect(params.get("job")).toBe(JOB.id);
+    expect(screen.getByRole("button", { name: "Fermer les détails" })).toHaveFocus();
+  });
+
+  it("ne restaure pas le focus en arrière-plan pendant une navigation job vers job", async () => {
+    const { user } = renderAppWithJobs([JOB], {
+      details: DETAILS_WITH_DUPLICATE,
+    });
+    const trigger = await screen.findByRole("button", {
+      name: "Voir l’offre Développeur Python",
+    });
+    await user.click(trigger);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Voir l’offre similaire Backend Python",
+      }),
+    );
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("job")).toBe(
+        POSSIBLE_DUPLICATE_ID,
+      ),
+    );
+    expect(trigger).not.toHaveFocus();
+
+    act(() => window.history.back());
+
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("job")).toBe(JOB.id),
+    );
+    expect(screen.getByRole("dialog", { name: "Détails de l’offre" })).toBeVisible();
+    expect(trigger).not.toHaveFocus();
+  });
+
   it("piège le focus dans le drawer et se ferme avec Échap", async () => {
     const { user } = renderAppWithJobs([JOB], {
       details: DETAILS_WITH_DUPLICATE,
@@ -307,12 +372,12 @@ describe("détails d’une offre", () => {
         ...DETAILS_WITH_DUPLICATE,
         sources: [
           {
-            source: "Free-Work",
+            source: "freework",
             url: "https://example.test/free-work/job-python",
             active: true,
           },
           {
-            source: "LinkedIn",
+            source: "linkedin",
             url: "https://example.test/linkedin/job-python",
             active: false,
           },
@@ -336,6 +401,37 @@ describe("détails d’une offre", () => {
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", "noreferrer");
     }
+  });
+
+  it("affiche toutes les métadonnées disponibles avec des libellés français", async () => {
+    renderAppWithJobs([JOB], {
+      details: {
+        ...DETAILS_WITH_DUPLICATE,
+        contractType: "cdi",
+        experienceLevel: "senior",
+        sources: [
+          {
+            source: "freework",
+            url: "https://example.test/free-work/job-python",
+            active: true,
+          },
+        ],
+      },
+      initialUrl: "/?search=search-python&job=job-python",
+    });
+
+    const metadata = await screen.findByRole("group", {
+      name: "Informations sur l’offre",
+    });
+    expect(metadata).toHaveTextContent("Entreprise Acme");
+    expect(metadata).toHaveTextContent("Lieu Paris");
+    expect(metadata).toHaveTextContent("Contrat CDI");
+    expect(metadata).toHaveTextContent("Expérience Senior");
+    expect(metadata).toHaveTextContent("Organisation Télétravail");
+    expect(metadata).toHaveTextContent(/Salaire 52.*000.*€.*64.*000.*€/);
+    expect(metadata).toHaveTextContent("Publication 3 août 2026");
+    expect(screen.getByRole("link", { name: "Free-Work" })).toBeVisible();
+    expect(screen.queryByText("freework", { exact: true })).toBeNull();
   });
 
   it("affiche les compétences et avantages sous forme de listes", async () => {
@@ -376,6 +472,15 @@ describe("détails d’une offre", () => {
     renderAppWithJobs([JOB], {
       details: {
         ...DETAILS_WITH_DUPLICATE,
+        company: "",
+        location: "",
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: "",
+        contractType: null,
+        experienceLevel: null,
+        remote: null,
+        postedAt: null,
         description: null,
         skills: [],
         benefits: [],
@@ -392,6 +497,9 @@ describe("détails d’une offre", () => {
     expect(within(dialog).queryByRole("region", { name: "Compétences" })).toBeNull();
     expect(within(dialog).queryByRole("region", { name: "Avantages" })).toBeNull();
     expect(within(dialog).queryByRole("region", { name: "Sources" })).toBeNull();
+    expect(
+      within(dialog).queryByRole("group", { name: "Informations sur l’offre" }),
+    ).toBeNull();
     expect(
       within(dialog).queryByRole("region", {
         name: "Offres similaires possibles",

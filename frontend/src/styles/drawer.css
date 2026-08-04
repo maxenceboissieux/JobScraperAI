@@ -75,6 +75,34 @@
   font-weight: 700;
 }
 
+.job-drawer__metadata {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 20px 0 0;
+}
+
+.job-drawer__metadata div {
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  padding: 10px 12px;
+}
+
+.job-drawer__metadata dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.job-drawer__metadata dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
 .job-drawer__warning {
   border: 1px solid #ddb294;
   background: #faeadf;

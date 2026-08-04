@@ -267,7 +267,7 @@ def test_latest_returns_null_then_newest_run(
     session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Fails if the empty state or global newest ordering is ambiguous."""
+    """Fails if global latest regresses or a search cannot retrieve its own run."""
     assert client.get("/api/syncs/latest").json() is None
     monkeypatch.setattr(SyncService, "execute", lambda self, run_id: None)
     first_search = create_search(client, sources=["freework"])
@@ -281,9 +281,20 @@ def test_latest_returns_null_then_newest_run(
     second = client.post("/api/syncs", json={"savedSearchId": second_search}).json()
 
     latest = client.get("/api/syncs/latest")
+    filtered = client.get(
+        "/api/syncs/latest", params={"savedSearchId": first_search}
+    )
+    unknown = client.get(
+        "/api/syncs/latest",
+        params={"savedSearchId": "00000000-0000-0000-0000-000000000000"},
+    )
 
     assert latest.status_code == 200
     assert latest.json()["id"] == second["id"]
+    assert filtered.status_code == 200
+    assert filtered.json()["id"] == first["id"]
+    assert unknown.status_code == 200
+    assert unknown.json() is None
 
 
 def test_executor_submit_failure_marks_run_failed_and_sanitizes_error(
