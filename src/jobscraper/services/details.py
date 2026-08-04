@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from jobscraper.db.base import utc_now
@@ -85,21 +86,20 @@ class JobDetailsService:
             return JobDetailsResult(
                 job=job,
                 cache_state="fresh",
-                updated_at=cached_at,
+                updated_at=self._utc(cached_at),
             )
 
         listing = self._best_listing(job.pk)
         if listing is None:
             return self._stale_or_raise(
                 job,
-                cached_at,
                 message=(
                     "Les détails de cette offre sont indisponibles : "
                     "aucune source active."
                 ),
             )
 
-        persistence_started = False
+        source = listing.source
         try:
             details = self._fetch_details(listing)
             if details is None:
@@ -107,33 +107,23 @@ class JobDetailsService:
             groups = self._detail_groups(job, details)
             if not groups:
                 raise JobDetailsUnavailableError(self._UNAVAILABLE_MESSAGE)
-            persistence_started = True
-            self._apply_details(job, details, groups)
-            self.jobs.stamp_detail_groups(
-                job.id,
-                groups=groups,
-                fetched_at=now,
-            )
-            self.session.commit()
+            refreshed = self._persist_details(job, details, fetched_at=now)
         except Exception as exc:
-            fallback_job = job
-            if persistence_started:
-                self.session.rollback()
-                fallback_job = self.jobs.get_job(canonical_job_id) or job
+            self.session.rollback()
+            fallback_job = self._reload_job(canonical_job_id)
             logger.opt(exception=exc).error(
                 "Échec d’actualisation des détails du job {} depuis {}",
                 canonical_job_id,
-                listing.source,
+                source,
             )
-            return self._stale_or_raise(fallback_job, cached_at, cause=exc)
+            return self._stale_or_raise(fallback_job, cause=exc)
 
-        refreshed = self.jobs.get_job(canonical_job_id)
         if refreshed is None or refreshed.details_fetched_at is None:
             raise JobDetailsUnavailableError(self._UNAVAILABLE_MESSAGE)
         return JobDetailsResult(
             job=refreshed,
             cache_state="refreshed",
-            updated_at=refreshed.details_fetched_at,
+            updated_at=self._utc(refreshed.details_fetched_at),
         )
 
     def _best_listing(self, job_pk: int) -> SourceListing | None:
@@ -162,9 +152,7 @@ class JobDetailsService:
     def _fetch_details(self, listing: SourceListing) -> JobOffer | None:
         scraper = self.registry.create(listing.source)
         try:
-            identifier = (
-                listing.url if listing.source == "freework" else listing.external_id
-            )
+            identifier = self._detail_identifier(listing)
             details = scraper.get_job_details(identifier)
         except Exception:
             try:
@@ -178,6 +166,100 @@ class JobDetailsService:
         else:
             scraper.close()
             return details
+
+    @staticmethod
+    def _detail_identifier(listing: SourceListing) -> str:
+        if listing.source == "freework":
+            return listing.url
+        if listing.source == "linkedin" and listing.external_id.startswith("linkedin_"):
+            return listing.external_id.removeprefix("linkedin_")
+        return listing.external_id
+
+    def _persist_details(
+        self,
+        job: CanonicalJob,
+        details: JobOffer,
+        *,
+        fetched_at: datetime,
+    ) -> CanonicalJob:
+        """Optimistically merge one fetched snapshot without losing a newer writer."""
+
+        current = job
+        while True:
+            groups = self._eligible_detail_groups(current, details, fetched_at)
+            if not groups:
+                return current
+            expected_version = self._utc(current.updated_at)
+            current_cache_at = current.details_fetched_at
+            next_cache_at = fetched_at
+            if current_cache_at is not None:
+                next_cache_at = max(self._utc(current_cache_at), fetched_at)
+            if self._claim_refresh(
+                current.pk,
+                expected_version=expected_version,
+                cache_at=next_cache_at,
+            ):
+                self._apply_details(current, details, groups)
+                self.jobs.stamp_detail_groups(
+                    current.id,
+                    groups=groups,
+                    fetched_at=fetched_at,
+                )
+                self.session.commit()
+                durable = self._reload_job(current.id)
+                if durable is None:
+                    raise JobDetailsUnavailableError(self._UNAVAILABLE_MESSAGE)
+                return durable
+
+            self.session.rollback()
+            durable = self._reload_job(current.id)
+            if durable is None:
+                raise JobDetailsUnavailableError(self._UNAVAILABLE_MESSAGE)
+            current = durable
+
+    def _eligible_detail_groups(
+        self,
+        job: CanonicalJob,
+        details: JobOffer,
+        fetched_at: datetime,
+    ) -> list[str]:
+        return [
+            group
+            for group in self._detail_groups(job, details)
+            if (
+                (stored_at := self.jobs._group_timestamp(job, group)) is None
+                or self._utc(stored_at) < fetched_at
+            )
+        ]
+
+    def _claim_refresh(
+        self,
+        job_pk: int,
+        *,
+        expected_version: datetime,
+        cache_at: datetime,
+    ) -> bool:
+        version = self._next_version(expected_version)
+        result = cast(
+            CursorResult[Any],
+            self.session.execute(
+                update(CanonicalJob)
+                .where(
+                    CanonicalJob.pk == job_pk,
+                    CanonicalJob.updated_at == expected_version,
+                )
+                .values(details_fetched_at=cache_at, updated_at=version)
+                .execution_options(synchronize_session=False)
+            ),
+        )
+        return result.rowcount == 1
+
+    def _reload_job(self, canonical_job_id: str) -> CanonicalJob | None:
+        return self.session.scalar(
+            select(CanonicalJob)
+            .where(CanonicalJob.id == canonical_job_id)
+            .execution_options(populate_existing=True)
+        )
 
     @classmethod
     def _detail_groups(cls, job: CanonicalJob, details: JobOffer) -> list[str]:
@@ -197,11 +279,12 @@ class JobDetailsService:
         has_incoming_salary = (
             details.salary_min is not None or details.salary_max is not None
         )
+        has_currency = bool(details.salary_currency.strip())
         preserves_cached_bounds = not (
             (job.salary_min is not None and details.salary_min is None)
             or (job.salary_max is not None and details.salary_max is None)
         )
-        return has_incoming_salary and preserves_cached_bounds
+        return has_incoming_salary and has_currency and preserves_cached_bounds
 
     @staticmethod
     def _apply_details(job: CanonicalJob, details: JobOffer, groups: list[str]) -> None:
@@ -214,7 +297,7 @@ class JobDetailsService:
                 job.salary_min = details.salary_min
             if details.salary_max is not None:
                 job.salary_max = details.salary_max
-            job.salary_currency = details.salary_currency
+            job.salary_currency = details.salary_currency.strip()
         if "skills" in groups:
             job.skills = list(details.skills)
         if "benefits" in groups:
@@ -222,17 +305,16 @@ class JobDetailsService:
 
     def _stale_or_raise(
         self,
-        job: CanonicalJob,
-        cached_at: datetime | None,
+        job: CanonicalJob | None,
         *,
         message: str | None = None,
         cause: Exception | None = None,
     ) -> JobDetailsResult:
-        if cached_at is not None:
+        if job is not None and job.details_fetched_at is not None:
             return JobDetailsResult(
                 job=job,
                 cache_state="stale",
-                updated_at=cached_at,
+                updated_at=self._utc(job.details_fetched_at),
                 warning=self._STALE_WARNING,
             )
         error = JobDetailsUnavailableError(message or self._UNAVAILABLE_MESSAGE)
@@ -245,3 +327,8 @@ class JobDetailsService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    @classmethod
+    def _next_version(cls, current: datetime) -> datetime:
+        candidate = cls._utc(utc_now())
+        return max(candidate, current + timedelta(microseconds=1))

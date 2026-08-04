@@ -6,14 +6,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from jobscraper.db.base import Base
-from jobscraper.db.models import SourceListing
+from jobscraper.db.models import CanonicalJob, SourceListing
 from jobscraper.db.session import create_engine_and_session
 from jobscraper.models.job import JobOffer, SearchCriteria
 from jobscraper.repositories.jobs import JobRepository
 from jobscraper.scrapers.base import BaseScraper
+from jobscraper.scrapers.linkedin import LinkedInScraper
 from jobscraper.services.details import (
     JobDetailsService,
     JobDetailsUnavailableError,
@@ -48,6 +50,7 @@ class DetailScenario:
     result: JobOffer | None = None
     error: Exception | None = None
     close_error: Exception | None = None
+    on_fetch: Callable[[], None] | None = None
 
 
 class FakeScraper(BaseScraper):
@@ -63,6 +66,8 @@ class FakeScraper(BaseScraper):
 
     def get_job_details(self, job_id: str) -> JobOffer | None:
         self.detail_identifiers.append(job_id)
+        if self.scenario.on_fetch is not None:
+            self.scenario.on_fetch()
         if self.scenario.error is not None:
             raise self.scenario.error
         return self.scenario.result
@@ -88,6 +93,17 @@ class FakeRegistry:
         scraper = FakeScraper(source, scenario)
         self.instances.append(scraper)
         return scraper
+
+
+class FixedRegistry:
+    def __init__(self, source: str, scraper: BaseScraper) -> None:
+        self.source = source
+        self.scraper = scraper
+
+    def create(self, source: str) -> BaseScraper:
+        if source != self.source:
+            raise AssertionError(f"unexpected source: {source}")
+        return self.scraper
 
 
 def listing_offer(
@@ -200,6 +216,45 @@ def test_get_prefers_known_detail_parser_over_newer_active_listing(
     assert result.cache_state == "refreshed"
     assert registry.created == ["freework"]
     assert registry.instances[0].detail_identifiers == [freework_url]
+
+
+def test_linkedin_persisted_identifier_builds_real_numeric_detail_url(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if the canonical source prefix leaks into LinkedIn's real detail URL."""
+    job = JobRepository(session).upsert_listing(
+        listing_offer(
+            "linkedin_10001",
+            source="linkedin",
+            description=None,
+        ).model_copy(
+            update={"url": "https://www.linkedin.com/jobs/view/python-engineer-10001"}
+        ),
+        seen_at=NOW,
+    )
+    observed_urls: list[str] = []
+    scraper = LinkedInScraper({"delay": 0})
+
+    def fetch_page(url: str) -> str:
+        observed_urls.append(url)
+        return """
+            <h1 class="top-card-layout__title">Python engineer</h1>
+            <a class="topcard__org-name-link">Acme</a>
+            <span class="topcard__flavor--bullet">Paris</span>
+            <div class="description__text">Détail LinkedIn</div>
+        """
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
+    service = JobDetailsService(
+        session,
+        registry=FixedRegistry("linkedin", scraper),
+        clock=Clock(),
+    )
+
+    result = service.get(job.id)
+
+    assert result.job.description == "Détail LinkedIn"
+    assert observed_urls == ["https://www.linkedin.com/jobs/view/10001"]
 
 
 def test_get_falls_back_to_newest_active_listing_when_none_has_a_parser(
@@ -321,19 +376,64 @@ def test_partial_salary_does_not_mix_new_currency_with_a_cached_bound(
     assert result.job.detail_provenance["skills"] == NOW.isoformat()
 
 
-def test_commit_failure_rolls_back_new_fields_before_returning_stale(
-    session: Session, monkeypatch: pytest.MonkeyPatch
+def test_empty_salary_currency_never_mutates_or_stamps_the_salary_group(
+    session: Session,
 ) -> None:
-    """Fails if stale fallback exposes mutations from a failed cache commit."""
+    """Fails if blank currency makes an otherwise complete salary snapshot durable."""
     jobs = JobRepository(session)
     job = jobs.upsert_listing(
-        listing_offer(description="Description validée"),
+        listing_offer(
+            salary_min=90_000,
+            salary_max=110_000,
+            skills=["Python"],
+        ).model_copy(update={"salary_currency": "USD"}),
         seen_at=NOW - timedelta(days=3),
     )
     old_timestamp = NOW - timedelta(days=2)
     job.details_fetched_at = old_timestamp
-    job.detail_provenance = {"description": old_timestamp.isoformat()}
+    job.detail_provenance = {
+        "salary": old_timestamp.isoformat(),
+        "skills": old_timestamp.isoformat(),
+    }
     session.commit()
+    detail = listing_offer(
+        salary_min=70_000,
+        salary_max=80_000,
+        skills=["FastAPI"],
+    ).model_copy(update={"salary_currency": ""})
+    service, _ = service_for(
+        session,
+        Clock(),
+        {"freework": DetailScenario(result=detail)},
+    )
+
+    result = service.get(job.id)
+
+    assert (
+        result.job.salary_min,
+        result.job.salary_max,
+        result.job.salary_currency,
+    ) == (90_000, 110_000, "USD")
+    assert result.job.detail_provenance["salary"] == old_timestamp.isoformat()
+    assert result.job.skills == ["FastAPI"]
+    assert result.job.detail_provenance["skills"] == NOW.isoformat()
+
+
+def test_real_commit_failure_never_returns_an_uncommitted_cache(
+    session: Session,
+) -> None:
+    """Fails if rollback trusts a cache timestamp that was never durable."""
+    jobs = JobRepository(session)
+    job = jobs.upsert_listing(
+        listing_offer(description="Description durable de carte"),
+        seen_at=NOW - timedelta(days=3),
+    )
+    session.commit()
+    old_timestamp = NOW - timedelta(days=2)
+    job.description = "Description de cache non commitée"
+    job.details_fetched_at = old_timestamp
+    job.detail_provenance = {"description": old_timestamp.isoformat()}
+    session.flush()
     service, _ = service_for(
         session,
         Clock(),
@@ -344,17 +444,120 @@ def test_commit_failure_rolls_back_new_fields_before_returning_stale(
         },
     )
 
-    def fail_commit() -> None:
+    def fail_commit(_session: Session) -> None:
         raise RuntimeError("database commit failed")
 
-    monkeypatch.setattr(session, "commit", fail_commit)
+    event.listen(session, "before_commit", fail_commit)
+    try:
+        with pytest.raises(JobDetailsUnavailableError) as caught:
+            service.get(job.id)
+    finally:
+        event.remove(session, "before_commit", fail_commit)
+
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    durable = session.scalar(select(CanonicalJob).where(CanonicalJob.id == job.id))
+    assert durable is not None
+    assert durable.description == "Description durable de carte"
+    assert durable.details_fetched_at is None
+
+
+def test_late_older_refresh_preserves_newer_groups_and_merges_disjoint_groups(
+    tmp_path: Path,
+) -> None:
+    """Fails if a late stale ORM writer regresses a newer committed refresh."""
+    engine, session_factory = create_engine_and_session(
+        f"sqlite:///{tmp_path / 'details-race.db'}"
+    )
+    Base.metadata.create_all(engine)
+    old_timestamp = NOW - timedelta(days=2)
+    with session_factory() as setup:
+        job = JobRepository(setup).upsert_listing(
+            listing_offer(
+                description="Description initiale",
+                skills=["Python"],
+                benefits=["Mutuelle"],
+            ),
+            seen_at=NOW - timedelta(days=3),
+        )
+        job.details_fetched_at = old_timestamp
+        job.detail_provenance = {
+            group: old_timestamp.isoformat()
+            for group in ("description", "skills", "benefits")
+        }
+        setup.commit()
+        job_id = job.id
+
+    with session_factory() as older_session, session_factory() as newer_session:
+        newer_service, _ = service_for(
+            newer_session,
+            Clock(NOW + timedelta(hours=2)),
+            {
+                "freework": DetailScenario(
+                    result=listing_offer(
+                        description="Description gagnante",
+                        skills=["FastAPI"],
+                    )
+                )
+            },
+        )
+        newer_results = []
+
+        def commit_newer_refresh() -> None:
+            newer_results.append(newer_service.get(job_id, max_age=timedelta(0)))
+
+        older_service, _ = service_for(
+            older_session,
+            Clock(NOW + timedelta(hours=1)),
+            {
+                "freework": DetailScenario(
+                    result=listing_offer(
+                        description="Description ancienne arrivée en retard",
+                        benefits=["RTT"],
+                    ),
+                    on_fetch=commit_newer_refresh,
+                )
+            },
+        )
+
+        result = older_service.get(job_id, max_age=timedelta(0))
+
+        assert len(newer_results) == 1
+        assert result.job.description == "Description gagnante"
+        assert result.job.skills == ["FastAPI"]
+        assert result.job.benefits == ["RTT"]
+        assert result.updated_at == NOW + timedelta(hours=2)
+        assert result.job.detail_provenance == {
+            "description": (NOW + timedelta(hours=2)).isoformat(),
+            "skills": (NOW + timedelta(hours=2)).isoformat(),
+            "benefits": (NOW + timedelta(hours=1)).isoformat(),
+        }
+
+    with session_factory() as observer:
+        durable = observer.scalar(select(CanonicalJob).where(CanonicalJob.id == job_id))
+        assert durable is not None
+        assert durable.description == "Description gagnante"
+        assert durable.skills == ["FastAPI"]
+        assert durable.benefits == ["RTT"]
+        assert durable.details_fetched_at == NOW + timedelta(hours=2)
+        assert durable.detail_provenance == {
+            "description": (NOW + timedelta(hours=2)).isoformat(),
+            "skills": (NOW + timedelta(hours=2)).isoformat(),
+            "benefits": (NOW + timedelta(hours=1)).isoformat(),
+        }
+
+
+def test_result_timestamps_are_always_aware_utc(session: Session) -> None:
+    """Fails if an in-session naive cache timestamp leaks through the result API."""
+    job = JobRepository(session).upsert_listing(listing_offer(), seen_at=NOW)
+    job.details_fetched_at = NOW.replace(tzinfo=None)
+    session.flush()
+    service, registry = service_for(session, Clock(), {})
 
     result = service.get(job.id)
 
-    assert result.cache_state == "stale"
-    assert result.updated_at == old_timestamp
-    assert result.job.description == "Description validée"
-    assert result.job.details_fetched_at == old_timestamp
+    assert result.updated_at == NOW
+    assert result.updated_at.tzinfo is timezone.utc
+    assert registry.created == []
 
 
 def test_stale_cache_survives_scraper_cleanup_failure(session: Session) -> None:
@@ -365,7 +568,7 @@ def test_stale_cache_survives_scraper_cleanup_failure(session: Session) -> None:
         seen_at=NOW - timedelta(days=3),
     )
     job.details_fetched_at = NOW - timedelta(days=2)
-    session.flush()
+    session.commit()
     scenario = DetailScenario(
         result=listing_offer(description="Description non validée"),
         close_error=RuntimeError("close failed"),
@@ -427,7 +630,7 @@ def test_stale_cache_survives_registry_failure(session: Session) -> None:
         listing_offer(description="Copie locale"), seen_at=NOW - timedelta(days=3)
     )
     job.details_fetched_at = NOW - timedelta(days=2)
-    session.flush()
+    session.commit()
     service, registry = service_for(
         session, Clock(), {"freework": ValueError("source disabled")}
     )
