@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: `jobscraper sync-saved-searches [--search-id UUID] [--source NAME]`; `build_runtime(database_url) -> RuntimeServices` shared by CLI and API.
 
-- [ ] **Step 1: Write the failing command test**
+- [x] **Step 1: Write the failing command test**
 
 ```python
 def test_sync_saved_searches_runs_all_active_searches(runner, runtime):
@@ -42,19 +42,19 @@ def test_sync_saved_searches_runs_all_active_searches(runner, runtime):
 
 Add tests for inactive searches, `--search-id`, `--source freework`, partial failure exit code `2`, and total failure exit code `1`.
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `.venv/bin/python -m pytest tests/test_sync_command.py -v`
 
-- [ ] **Step 3: Implement shared runtime composition and command**
+- [x] **Step 3: Implement shared runtime composition and command**
 
 `build_runtime()` creates engine/session factory, repositories, registry, deduplicator, sync service and detail service exactly once. The command migrates the configured database before reading active searches and prints a compact Rich table per source.
 
-- [ ] **Step 4: Verify command tests**
+- [x] **Step 4: Verify command tests**
 
 Run: `.venv/bin/python -m pytest tests/test_sync_command.py -v`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/jobscraper/cli.py src/jobscraper/runtime.py tests/test_sync_command.py
