@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 from click.testing import CliRunner
 
+import jobscraper.automation.launchd as launchd_module
 import jobscraper.cli as cli_module
 from jobscraper.automation.launchd import (
     LAUNCH_AGENT_FILENAME,
@@ -107,6 +108,16 @@ def test_read_launch_agent_schedule_rejects_missing_or_invalid_interval(
 ) -> None:
     plist_path = tmp_path / LAUNCH_AGENT_FILENAME
     plist_path.write_bytes(plistlib.dumps(payload))
+
+    with pytest.raises(ValueError, match="calendrier"):
+        read_launch_agent_schedule(plist_path)
+
+
+def test_read_launch_agent_schedule_normalizes_corrupted_plist(
+    tmp_path: Path,
+) -> None:
+    plist_path = tmp_path / LAUNCH_AGENT_FILENAME
+    plist_path.write_bytes(b"plist corrompu")
 
     with pytest.raises(ValueError, match="calendrier"):
         read_launch_agent_schedule(plist_path)
@@ -242,6 +253,37 @@ def test_install_writes_user_plist_and_bootstraps_with_exact_arguments(
         }
 
 
+def test_install_restricts_existing_runtime_directory_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project_dir, python_path = _install_inputs(tmp_path)
+    launch_agents_dir = installed_launch_agent_path(home).parent
+    logs_dir = project_dir / "data" / "logs"
+    launch_agents_dir.mkdir(parents=True)
+    logs_dir.mkdir(parents=True)
+    launch_agents_dir.chmod(0o755)
+    logs_dir.chmod(0o755)
+    runner = Mock(
+        side_effect=[
+            _result(113, stderr="Could not find service"),
+            _result(),
+        ]
+    )
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    install_launch_agent(
+        project_dir,
+        python_path,
+        hour=8,
+        minute=0,
+        home=home,
+        uid=501,
+    )
+
+    assert launch_agents_dir.stat().st_mode & 0o777 == 0o700
+    assert logs_dir.stat().st_mode & 0o777 == 0o700
+
+
 def test_reinstall_boots_out_loaded_agent_before_replacing_and_bootstrapping(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -348,6 +390,99 @@ def test_failed_bootstrap_restores_and_reloads_previous_plist(
     ]
 
 
+def test_failed_restore_write_never_bootstraps_the_unrestored_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project_dir, python_path = _install_inputs(tmp_path)
+    plist_path = installed_launch_agent_path(home)
+    plist_path.parent.mkdir(parents=True)
+    plist_path.write_bytes(
+        render_launch_agent(project_dir, python_path, hour=7, minute=15)
+    )
+    real_atomic_write = launchd_module._atomic_write
+    atomic_calls = 0
+
+    def fail_only_restore(path: Path, content: bytes, *, mode: int) -> None:
+        nonlocal atomic_calls
+        atomic_calls += 1
+        if atomic_calls == 2:
+            raise PermissionError("restauration refusée")
+        real_atomic_write(path, content, mode=mode)
+
+    monkeypatch.setattr(launchd_module, "_atomic_write", fail_only_restore)
+    runner = Mock(
+        side_effect=[
+            _result(stdout="state = running\n"),
+            _result(),
+            _result(5, stderr="bootstrap nouveau refusé"),
+            _result(113, stderr="Could not find service"),
+            _result(),
+        ]
+    )
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    with pytest.raises(AutomationError) as error:
+        install_launch_agent(
+            project_dir,
+            python_path,
+            hour=10,
+            minute=45,
+            home=home,
+            uid=501,
+        )
+
+    assert "bootstrap nouveau refusé" in str(error.value)
+    assert "restauration refusée" in str(error.value)
+    assert [call.args[0] for call in runner.call_args_list] == [
+        ["launchctl", "print", "gui/501/com.jobscraper.daily-sync"],
+        ["launchctl", "bootout", "gui/501/com.jobscraper.daily-sync"],
+        ["launchctl", "bootstrap", "gui/501", str(plist_path)],
+        ["launchctl", "bootout", "gui/501/com.jobscraper.daily-sync"],
+    ]
+
+
+def test_failed_new_write_reports_failed_reactivation_of_previous_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project_dir, python_path = _install_inputs(tmp_path)
+    plist_path = installed_launch_agent_path(home)
+    plist_path.parent.mkdir(parents=True)
+    previous = render_launch_agent(project_dir, python_path, hour=7, minute=15)
+    plist_path.write_bytes(previous)
+    monkeypatch.setattr(
+        launchd_module,
+        "_atomic_write",
+        Mock(side_effect=PermissionError("écriture neuve refusée")),
+    )
+    runner = Mock(
+        side_effect=[
+            _result(stdout="state = running\n"),
+            _result(),
+            _result(5, stderr="réactivation ancien refusée"),
+        ]
+    )
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    with pytest.raises(AutomationError) as error:
+        install_launch_agent(
+            project_dir,
+            python_path,
+            hour=10,
+            minute=45,
+            home=home,
+            uid=501,
+        )
+
+    assert plist_path.read_bytes() == previous
+    assert "écriture neuve refusée" in str(error.value)
+    assert "réactivation ancien refusée" in str(error.value)
+    assert [call.args[0] for call in runner.call_args_list] == [
+        ["launchctl", "print", "gui/501/com.jobscraper.daily-sync"],
+        ["launchctl", "bootout", "gui/501/com.jobscraper.daily-sync"],
+        ["launchctl", "bootstrap", "gui/501", str(plist_path)],
+    ]
+
+
 def test_failed_first_bootstrap_removes_only_the_new_plist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -387,6 +522,161 @@ def test_missing_launchctl_is_reported_as_a_french_automation_error(
 
     with pytest.raises(AutomationError, match="launchctl"):
         get_launch_agent_status(home=tmp_path / "home", uid=501)
+
+
+def test_install_refuses_symlinked_library_before_subprocess_or_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project_dir, python_path = _install_inputs(tmp_path)
+    outside = tmp_path / "outside"
+    home.mkdir()
+    outside.mkdir()
+    (home / "Library").symlink_to(outside, target_is_directory=True)
+    runner = Mock(side_effect=AssertionError("launchctl ne doit pas être appelé"))
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    with pytest.raises(AutomationError, match="symbolique"):
+        install_launch_agent(
+            project_dir,
+            python_path,
+            hour=8,
+            minute=0,
+            home=home,
+            uid=501,
+        )
+
+    assert list(outside.iterdir()) == []
+    runner.assert_not_called()
+
+
+def test_install_normalizes_launchagents_mkdir_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project_dir, python_path = _install_inputs(tmp_path)
+    launch_agents_dir = installed_launch_agent_path(home).parent
+    original_mkdir = Path.mkdir
+
+    def fail_launchagents_mkdir(
+        path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        if path == launch_agents_dir:
+            raise PermissionError("création LaunchAgents refusée")
+        original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+
+    monkeypatch.setattr(Path, "mkdir", fail_launchagents_mkdir)
+    runner = Mock(return_value=_result(113, stderr="Could not find service"))
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    with pytest.raises(AutomationError) as error:
+        install_launch_agent(
+            project_dir,
+            python_path,
+            hour=8,
+            minute=0,
+            home=home,
+            uid=501,
+        )
+
+    assert "préparer" in str(error.value)
+    assert "création LaunchAgents refusée" in str(error.value)
+    assert runner.call_count == 1
+
+
+def test_cli_normalizes_logs_mkdir_error_as_french_click_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project_dir, python_path = _install_inputs(tmp_path)
+    logs_dir = project_dir / "data" / "logs"
+    original_mkdir = Path.mkdir
+
+    def fail_logs_mkdir(
+        path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        if path == logs_dir:
+            raise PermissionError("création logs refusée")
+        original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+
+    def install_in_fixture(
+        _project_dir: Path,
+        _python_path: Path,
+        hour: int,
+        minute: int,
+    ) -> Path:
+        return install_launch_agent(
+            project_dir,
+            python_path,
+            hour,
+            minute,
+            home=home,
+            uid=501,
+        )
+
+    monkeypatch.setattr(Path, "mkdir", fail_logs_mkdir)
+    monkeypatch.setattr(cli_module, "install_launch_agent", install_in_fixture)
+    runner = Mock(return_value=_result(113, stderr="Could not find service"))
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    result = CliRunner().invoke(main, ["automation", "install"])
+
+    assert result.exit_code == 1
+    assert "préparer" in result.output
+    assert "création logs refusée" in result.output
+
+
+def test_status_refuses_symlinked_library_before_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    outside = tmp_path / "outside"
+    home.mkdir()
+    outside.mkdir()
+    (home / "Library").symlink_to(outside, target_is_directory=True)
+    runner = Mock(side_effect=AssertionError("launchctl ne doit pas être appelé"))
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    with pytest.raises(AutomationError, match="symbolique"):
+        get_launch_agent_status(home=home, uid=501)
+
+    runner.assert_not_called()
+
+
+def test_status_refuses_symlinked_managed_plist_before_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    launch_agents_dir = home / "Library" / "LaunchAgents"
+    outside_plist = tmp_path / "outside.plist"
+    launch_agents_dir.mkdir(parents=True)
+    outside_plist.write_bytes(b"agent externe")
+    (launch_agents_dir / LAUNCH_AGENT_FILENAME).symlink_to(outside_plist)
+    runner = Mock(side_effect=AssertionError("launchctl ne doit pas être appelé"))
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    with pytest.raises(AutomationError, match="symbolique"):
+        get_launch_agent_status(home=home, uid=501)
+
+    assert outside_plist.read_bytes() == b"agent externe"
+    runner.assert_not_called()
+
+
+def test_uninstall_refuses_symlinked_launchagents_without_deleting_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    outside = tmp_path / "outside"
+    (home / "Library").mkdir(parents=True)
+    outside.mkdir()
+    (home / "Library" / "LaunchAgents").symlink_to(outside, target_is_directory=True)
+    outside_plist = outside / LAUNCH_AGENT_FILENAME
+    outside_plist.write_bytes(b"agent externe")
+    runner = Mock(side_effect=AssertionError("launchctl ne doit pas être appelé"))
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    with pytest.raises(AutomationError, match="symbolique"):
+        uninstall_launch_agent(home=home, uid=501)
+
+    assert outside_plist.read_bytes() == b"agent externe"
+    runner.assert_not_called()
 
 
 def test_unexpected_bootout_error_preserves_previous_plist(
@@ -468,6 +758,20 @@ def test_status_propagates_unexpected_launchctl_failures_in_french(
 ) -> None:
     runner = Mock(return_value=_result(returncode, stderr=stderr))
     monkeypatch.setattr("jobscraper.automation.launchd.subprocess.run", runner)
+
+    with pytest.raises(AutomationError, match="état"):
+        get_launch_agent_status(home=tmp_path / "home", uid=501)
+
+
+def test_status_does_not_treat_generic_no_such_process_as_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = Mock(
+        return_value=_result(
+            113, stderr="launchctl communication failed: No such process"
+        )
+    )
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
 
     with pytest.raises(AutomationError, match="état"):
         get_launch_agent_status(home=tmp_path / "home", uid=501)

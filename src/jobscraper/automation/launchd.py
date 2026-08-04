@@ -75,13 +75,13 @@ def render_launch_agent(
 def read_launch_agent_schedule(plist_path: Path) -> tuple[int, int]:
     """Read the configured hour and minute from an installed plist."""
 
-    payload = plistlib.loads(plist_path.read_bytes())
     try:
+        payload = plistlib.loads(plist_path.read_bytes())
         interval = payload["StartCalendarInterval"]
         if not isinstance(interval, dict):
             raise TypeError
         return _validate_schedule(interval["Hour"], interval["Minute"])
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, plistlib.InvalidFileException) as exc:
         raise ValueError("Le calendrier du plist launchd est invalide.") from exc
 
 
@@ -90,7 +90,7 @@ def get_launch_agent_status(
 ) -> LaunchAgentStatus:
     """Inspect launchd without conflating an absent job with command failure."""
 
-    plist_path = installed_launch_agent_path(home)
+    plist_path = _validated_user_plist_path(home)
     plist_exists = _path_exists(plist_path)
     result = _run_launchctl(["print", _service_target(uid)])
     if result.returncode == 0:
@@ -150,7 +150,7 @@ def install_launch_agent(
             f"{resolved_python}"
         )
 
-    plist_path = installed_launch_agent_path(home)
+    plist_path = _validated_user_plist_path(home)
     previous_exists = _path_exists(plist_path)
     previous_content: bytes | None = None
     previous_mode = 0o600
@@ -164,8 +164,7 @@ def install_launch_agent(
             ) from exc
 
     status = get_launch_agent_status(home=home, uid=uid)
-    plist_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    (resolved_project / "data" / "logs").mkdir(parents=True, exist_ok=True, mode=0o700)
+    _prepare_runtime_directories(plist_path, resolved_project)
     if status.loaded or previous_exists:
         _bootout(uid)
 
@@ -174,19 +173,33 @@ def install_launch_agent(
     )
     try:
         _atomic_write(plist_path, rendered, mode=0o600)
-    except OSError as exc:
+    except OSError as write_error:
+        reactivation_error: AutomationError | None = None
         if status.loaded and previous_exists:
-            _best_effort_bootstrap(uid, plist_path)
-        raise AutomationError(f"Impossible d’écrire le plist launchd : {exc}") from exc
+            try:
+                _bootstrap(uid, plist_path)
+            except AutomationError as exc:
+                reactivation_error = exc
+        reactivation_detail = (
+            " Échec de la réactivation de l’ancien agent : " f"{reactivation_error}"
+            if reactivation_error is not None
+            else ""
+        )
+        raise AutomationError(
+            "Impossible d’écrire le plist launchd : "
+            f"{write_error}.{reactivation_detail}"
+        ) from write_error
 
     try:
         _bootstrap(uid, plist_path)
     except AutomationError as install_error:
         restoration_errors: list[str] = []
+        safe_to_reload = True
         try:
             _bootout(uid)
         except AutomationError as exc:
             restoration_errors.append(str(exc))
+            safe_to_reload = False
         try:
             if previous_content is None:
                 if _path_exists(plist_path):
@@ -195,7 +208,8 @@ def install_launch_agent(
                 _atomic_write(plist_path, previous_content, mode=previous_mode)
         except OSError as exc:
             restoration_errors.append(f"restauration du plist impossible : {exc}")
-        if status.loaded and previous_content is not None:
+            safe_to_reload = False
+        if status.loaded and previous_content is not None and safe_to_reload:
             try:
                 _bootstrap(uid, plist_path)
             except AutomationError as exc:
@@ -214,7 +228,7 @@ def install_launch_agent(
 def uninstall_launch_agent(*, home: Path | None = None, uid: int | None = None) -> bool:
     """Unload the agent, then remove only JobScraper's exact user plist."""
 
-    plist_path = installed_launch_agent_path(home)
+    plist_path = _validated_user_plist_path(home)
     existed = _path_exists(plist_path)
     _bootout(uid)
     if existed:
@@ -266,7 +280,7 @@ def _is_not_loaded(result: subprocess.CompletedProcess[str]) -> bool:
             "could not find service",
             "could not find specified service",
             "service not found",
-            "no such process",
+            "boot-out failed: 3: no such process",
         )
     )
 
@@ -289,15 +303,58 @@ def _bootstrap(uid: int | None, plist_path: Path) -> None:
         )
 
 
-def _best_effort_bootstrap(uid: int | None, plist_path: Path) -> None:
-    try:
-        _bootstrap(uid, plist_path)
-    except AutomationError:
-        pass
-
-
 def _path_exists(path: Path) -> bool:
     return path.exists() or path.is_symlink()
+
+
+def _prepare_runtime_directories(plist_path: Path, project_dir: Path) -> None:
+    launch_agents_dir = plist_path.parent
+    logs_dir = project_dir / "data" / "logs"
+    try:
+        launch_agents_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        launch_agents_dir.chmod(0o700)
+        logs_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        logs_dir.chmod(0o700)
+    except OSError as exc:
+        raise AutomationError(
+            "Impossible de préparer les dossiers de l’automatisation launchd : "
+            f"{exc}"
+        ) from exc
+
+
+def _validated_user_plist_path(home: Path | None) -> Path:
+    """Reject redirected user paths before any launchd or filesystem mutation."""
+
+    user_home = (home or Path.home()).resolve()
+    library_dir = user_home / "Library"
+    launch_agents_dir = library_dir / "LaunchAgents"
+    plist_path = launch_agents_dir / LAUNCH_AGENT_FILENAME
+    try:
+        for ancestor in (library_dir, launch_agents_dir):
+            if ancestor.is_symlink():
+                raise AutomationError(
+                    "Le chemin launchd utilisateur contient un lien symbolique "
+                    f"interdit : {ancestor}"
+                )
+            if ancestor.exists() and not ancestor.is_dir():
+                raise AutomationError(
+                    f"Le chemin launchd utilisateur n’est pas un dossier : {ancestor}"
+                )
+        if plist_path.is_symlink():
+            raise AutomationError(
+                "Le plist launchd géré ne peut pas être un lien symbolique : "
+                f"{plist_path}"
+            )
+        resolved_parent = launch_agents_dir.resolve()
+        resolved_parent.relative_to(user_home)
+    except AutomationError:
+        raise
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise AutomationError(
+            "Le chemin launchd utilisateur sort du dossier personnel ou ne peut "
+            f"pas être validé : {exc}"
+        ) from exc
+    return plist_path
 
 
 def _read_schedule_if_valid(plist_path: Path) -> tuple[int, int] | None:
