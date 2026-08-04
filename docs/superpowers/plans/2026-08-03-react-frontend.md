@@ -196,7 +196,7 @@ git commit -m "feat: add instant local job filters"
 - Consumes: `api.getJobs(filters)` and `JobCard` DTO.
 - Produces: selectable cards, source badges, possible-duplicate badge, empty/error/retry states, 24-item pages.
 
-- [ ] **Step 1: Write failing grid-state tests**
+- [x] **Step 1: Write failing grid-state tests**
 
 ```tsx
 it("affiche les sources et le doublon possible", async () => {
@@ -210,21 +210,21 @@ it("affiche les sources et le doublon possible", async () => {
 
 Add tests for `Aucune offre ne correspond à ces filtres`, API error with `Réessayer`, and next-page query.
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `cd frontend && pnpm test src/features/jobs/job-grid.test.tsx`
 
-- [ ] **Step 3: Implement cards and CSS grid**
+- [x] **Step 3: Implement cards and CSS grid**
 
 Cards show title, company, location, contract, relative date, remote, salary and source badges when present. Use `grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))`; do not invent missing values.
 
-- [ ] **Step 4: Verify tests and production build**
+- [x] **Step 4: Verify tests and production build**
 
 Run: `cd frontend && pnpm test src/features/jobs/job-grid.test.tsx && pnpm build`
 
 Expected: tests pass and Vite produces `frontend/dist`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src
