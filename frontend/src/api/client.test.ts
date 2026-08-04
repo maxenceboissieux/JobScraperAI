@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { delay, http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { api, ApiError } from "./client";
 import type {
@@ -377,6 +377,32 @@ describe("api", () => {
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("écarte un AbortSignal d’un realm incompatible sans perdre la requête", async () => {
+    server.use(
+      http.get(`${origin}/api/searches`, () => HttpResponse.json([savedSearch])),
+    );
+    const NativeRequest = globalThis.Request;
+    const CrossRealmRejectingRequest = function (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) {
+      if (init?.signal) {
+        throw new TypeError("AbortSignal d’un autre realm");
+      }
+      return new NativeRequest(input, init);
+    } as unknown as typeof Request;
+    CrossRealmRejectingRequest.prototype = NativeRequest.prototype;
+    vi.stubGlobal("Request", CrossRealmRejectingRequest);
+
+    try {
+      await expect(
+        api.getSearches({ signal: new AbortController().signal }),
+      ).resolves.toEqual([savedSearch]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("signale une réponse JSON de succès invalide", async () => {

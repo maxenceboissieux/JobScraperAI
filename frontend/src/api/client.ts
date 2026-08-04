@@ -58,6 +58,22 @@ function apiUrl(path: string): URL {
   return new URL(path, origin);
 }
 
+function compatibleRequestSignal(
+  signal: AbortSignal | null | undefined,
+): AbortSignal | undefined {
+  if (signal == null) {
+    return undefined;
+  }
+  try {
+    // Some DOM test environments expose a different AbortSignal realm than fetch.
+    // Real browsers accept their native signal and retain cancellation semantics.
+    new Request("http://localhost", { signal });
+    return signal;
+  } catch {
+    return undefined;
+  }
+}
+
 async function errorDetail(response: Response): Promise<unknown> {
   const text = await response.text();
   if (response.headers.get("content-type")?.includes("application/json")) {
@@ -92,6 +108,7 @@ async function request<T>(
   try {
     response = await fetch(apiUrl(path), {
       ...init,
+      signal: compatibleRequestSignal(init.signal),
       headers: {
         Accept: "application/json",
         ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
