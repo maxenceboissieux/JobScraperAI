@@ -544,7 +544,7 @@ class LinkedInScraper(BaseScraper):
             description = soup.select_one(
                 "div.description__text, " "div.jobs-description__content"
             )
-            description_text = description.get_text(strip=True) if description else None
+            description_text = self._extract_description_text(description)
 
             # Critères (type de contrat, niveau d'expérience, etc.)
             criteria_items = soup.select(
@@ -597,3 +597,15 @@ class LinkedInScraper(BaseScraper):
         except Exception as e:
             logger.error(f"Erreur parsing détails: {e}")
             return None
+
+    @staticmethod
+    def _extract_description_text(element: Tag | None) -> str | None:
+        """Extract readable detail text while preserving HTML block separators."""
+        if element is None:
+            return None
+        lines = [
+            re.sub(r"\s+", " ", line).strip()
+            for line in element.get_text("\n", strip=True).splitlines()
+        ]
+        text = "\n".join(line for line in lines if line)
+        return text or None

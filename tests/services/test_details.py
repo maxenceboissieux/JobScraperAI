@@ -249,7 +249,12 @@ def test_linkedin_persisted_identifier_builds_real_numeric_detail_url(
             <h1 class="top-card-layout__title">Python engineer</h1>
             <a class="topcard__org-name-link">Acme</a>
             <span class="topcard__flavor--bullet">Paris</span>
-            <div class="description__text">Détail LinkedIn</div>
+            <div class="description__text">
+              <h2>Description du poste</h2>
+              <p>Construire le produit.</p>
+              <p>Vos missions :</p>
+              <ul><li>Concevoir</li><li>Tester</li></ul>
+            </div>
         """
 
     monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
@@ -261,8 +266,82 @@ def test_linkedin_persisted_identifier_builds_real_numeric_detail_url(
 
     result = service.get(job.id)
 
-    assert result.job.description == "Détail LinkedIn"
+    assert result.job.description == (
+        "Description du poste\n"
+        "Construire le produit.\n"
+        "Vos missions :\n"
+        "Concevoir\n"
+        "Tester"
+    )
     assert observed_urls == ["https://www.linkedin.com/jobs/view/10001"]
+
+
+def test_linkedin_detail_keeps_words_separated_by_inline_markup(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if inline tags concatenate neighboring words in a detail description."""
+    job = JobRepository(session).upsert_listing(
+        listing_offer("linkedin_10002", source="linkedin", description=None),
+        seen_at=NOW,
+    )
+    scraper = LinkedInScraper({"delay": 0})
+
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: """
+            <h1 class="top-card-layout__title">TypeScript engineer</h1>
+            <a class="topcard__org-name-link">Acme</a>
+            <span class="topcard__flavor--bullet">Paris</span>
+            <div class="description__text"><p>TypeScript <strong>senior</strong></p></div>
+        """,
+    )
+    service = JobDetailsService(
+        session,
+        registry=FixedRegistry("linkedin", scraper),
+        clock=Clock(),
+    )
+
+    result = service.get(job.id)
+
+    assert result.job.description in {"TypeScript senior", "TypeScript\nsenior"}
+
+
+def test_empty_linkedin_detail_returns_stale_cache_instead_of_an_empty_refresh(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if an empty LinkedIn container is persisted as a refreshed description."""
+    job = JobRepository(session).upsert_listing(
+        listing_offer(
+            "linkedin_10003", source="linkedin", description="Description en cache"
+        ),
+        seen_at=NOW - timedelta(days=3),
+    )
+    job.details_fetched_at = NOW - timedelta(days=2)
+    session.commit()
+    scraper = LinkedInScraper({"delay": 0})
+
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: """
+            <h1 class="top-card-layout__title">Python engineer</h1>
+            <a class="topcard__org-name-link">Acme</a>
+            <span class="topcard__flavor--bullet">Paris</span>
+            <div class="description__text">   </div>
+        """,
+    )
+    service = JobDetailsService(
+        session,
+        registry=FixedRegistry("linkedin", scraper),
+        clock=Clock(),
+    )
+
+    result = service.get(job.id)
+
+    assert result.cache_state == "stale"
+    assert result.job.description == "Description en cache"
+    assert result.updated_at == NOW - timedelta(days=2)
 
 
 def test_get_refreshes_from_latest_inactive_linkedin_when_no_source_is_active(
