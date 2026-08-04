@@ -30,10 +30,10 @@ class HelloWorkScraper(BaseScraper):
     CONTRACT_MAPPING = {
         ContractType.CDI: "CDI",
         ContractType.CDD: "CDD",
-        ContractType.INTERIM: "interim",
-        ContractType.STAGE: "stage",
-        ContractType.ALTERNANCE: "alternance",
-        ContractType.FREELANCE: "freelance",
+        ContractType.INTERIM: "Travail_temp",
+        ContractType.STAGE: "Stage",
+        ContractType.ALTERNANCE: "Alternance",
+        ContractType.FREELANCE: "Freelance",
     }
 
     # Mapping des dates de publication
@@ -230,7 +230,7 @@ class HelloWorkScraper(BaseScraper):
         """
         base = f"{self.base_url}/fr-fr/emploi/recherche.html"
 
-        params = {}
+        params: dict[str, str | list[str]] = {}
 
         if query is None:
             query = self._search_queries(criteria)[0]
@@ -248,7 +248,7 @@ class HelloWorkScraper(BaseScraper):
                 if ct in self.CONTRACT_MAPPING
             ]
             if contract_codes:
-                params["c"] = ",".join(filter(None, contract_codes))
+                params["c"] = list(filter(None, contract_codes))
 
         # Date de publication
         if criteria.date_posted and criteria.date_posted != DatePosted.ANY_TIME:
@@ -260,7 +260,7 @@ class HelloWorkScraper(BaseScraper):
         if criteria.radius_km:
             params["ray"] = str(criteria.radius_km)
 
-        return f"{base}?{urlencode(params)}" if params else base
+        return f"{base}?{urlencode(params, doseq=True)}" if params else base
 
     def _extract_job_cards(self, soup: BeautifulSoup) -> list[Tag]:
         """

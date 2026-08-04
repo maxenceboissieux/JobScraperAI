@@ -3,6 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from bs4 import BeautifulSoup
@@ -124,6 +125,17 @@ def test_hellowork_uses_each_keyword_without_a_title_and_supports_no_terms() -> 
     ]
     assert scraper._search_queries(SearchCriteria()) == [""]
     assert "k=" not in scraper._build_search_url(SearchCriteria(), query="")
+
+
+def test_hellowork_repeats_current_contract_filter_values() -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+    criteria = SearchCriteria(
+        contract_types=[ContractType.CDI, ContractType.CDD, ContractType.FREELANCE]
+    )
+
+    query = parse_qs(urlparse(scraper._build_search_url(criteria)).query)
+
+    assert query["c"] == ["CDI", "CDD", "Freelance"]
 
 
 @pytest.mark.parametrize(
