@@ -5,6 +5,9 @@ import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { SavedSearch, SearchCreate, SearchUpdate } from "../api/types";
 import { AppHeader } from "../components/AppHeader";
+import { JobFilters } from "../features/jobs/JobFilters";
+import { PeriodTabs } from "../features/jobs/PeriodTabs";
+import { useJobFilters } from "../features/jobs/useJobFilters";
 import { SearchEditor } from "../features/searches/SearchEditor";
 import { SearchSelector } from "../features/searches/SearchSelector";
 
@@ -56,6 +59,7 @@ function replaceCachedSearch(
 export function App() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const jobFilters = useJobFilters();
   const [editor, setEditor] = useState<EditorSession>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -241,6 +245,21 @@ export function App() {
       <AppHeader searchControls={searchControls} />
 
       <main className="app-main" id="contenu-principal">
+        <section className="job-filters" aria-label="Filtres des offres">
+          <PeriodTabs
+            period={jobFilters.filters.period}
+            onChange={(period) => jobFilters.setFilter("period", period)}
+          />
+          <JobFilters
+            filters={jobFilters.filters}
+            activeCount={jobFilters.activeCount}
+            queryDraft={jobFilters.queryDraft}
+            setQueryDraft={jobFilters.setQueryDraft}
+            setFilter={jobFilters.setFilter}
+            clearFilters={jobFilters.clearFilters}
+          />
+        </section>
+
         {notice ? (
           <p className="status-banner status-banner--success" role="status">
             {notice}
