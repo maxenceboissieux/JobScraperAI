@@ -1,6 +1,7 @@
 """Interface en ligne de commande pour JobScraper."""
 
 import json
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -18,6 +19,7 @@ from jobscraper.models.job import (
     SortBy,
     WorkplaceType,
 )
+from jobscraper.runtime import DEFAULT_DATABASE_URL, RuntimeServices, build_runtime
 from jobscraper.scrapers.adzuna import AdzunaScraper
 from jobscraper.scrapers.francetravail import FranceTravailScraper
 from jobscraper.scrapers.freework import FreeWorkScraper
@@ -26,6 +28,15 @@ from jobscraper.scrapers.linkedin import LinkedInScraper
 from jobscraper.scrapers.wttj import WTTJScraper
 
 console = Console()
+
+SUPPORTED_SOURCES = (
+    "linkedin",
+    "hellowork",
+    "francetravail",
+    "adzuna",
+    "wttj",
+    "freework",
+)
 
 
 def setup_logging(verbose: bool) -> None:
@@ -339,6 +350,104 @@ def search(
         save_jobs_csv(jobs, output)
     else:
         display_jobs_table(jobs)
+
+
+def _sync_status_label(status: str) -> str:
+    """Return a compact French label for a durable synchronization status."""
+
+    return {
+        "succeeded": "Réussie",
+        "partial": "Partielle",
+        "failed": "Échouée",
+    }.get(status, status)
+
+
+def _display_sync_results(
+    runtime: RuntimeServices, search_name: str, run_id: str
+) -> str:
+    """Render one run's durable per-source results and return its status."""
+
+    run = runtime.sync_runs.get(run_id)
+    if run is None:
+        raise RuntimeError("La synchronisation terminée est introuvable.")
+    table = Table(title=f"Synchronisation — {search_name}")
+    table.add_column("Source", style="cyan")
+    table.add_column("Statut")
+    table.add_column("Trouvées", justify="right")
+    table.add_column("Enregistrées", justify="right")
+    table.add_column("Erreur")
+    for result in runtime.sync_runs.source_results(run_id):
+        table.add_row(
+            result.source,
+            _sync_status_label(result.status),
+            str(result.offers_seen),
+            str(result.offers_persisted),
+            result.error_message or "",
+        )
+    console.print(table)
+    return str(run.status)
+
+
+@main.command("sync-saved-searches")
+@click.option(
+    "--search-id",
+    type=click.UUID,
+    help="Identifiant précis d'une recherche enregistrée.",
+)
+@click.option(
+    "--source",
+    type=click.Choice(SUPPORTED_SOURCES),
+    help="Limiter la synchronisation à une source.",
+)
+@click.pass_context
+def sync_saved_searches(
+    ctx: click.Context, search_id: object | None, source: str | None
+) -> None:
+    """Synchronise les recherches enregistrées sans démarrer l'API."""
+
+    injected_runtime = ctx.obj.get("runtime") if ctx.obj else None
+    runtime = injected_runtime or build_runtime(
+        os.getenv("JOBSCRAPER_DATABASE_URL", DEFAULT_DATABASE_URL)
+    )
+    try:
+        runtime.migrate()
+        if search_id is None:
+            searches = runtime.saved_searches.list(active=True)
+        else:
+            selected = runtime.saved_searches.get(str(search_id))
+            if selected is None:
+                raise click.ClickException(
+                    "La recherche enregistrée demandée n’existe pas."
+                )
+            searches = [selected]
+
+        if not searches:
+            console.print(
+                "[yellow]Aucune recherche active. "
+                "Activez-en une dans l’interface avant de relancer.[/yellow]"
+            )
+            return
+
+        statuses: list[str] = []
+        only_sources = None if source is None else {source}
+        for saved_search in searches:
+            run_id = runtime.sync_service.run(
+                saved_search.id, only_sources=only_sources
+            )
+            statuses.append(_display_sync_results(runtime, saved_search.name, run_id))
+
+        if all(status == "succeeded" for status in statuses):
+            console.print("[bold green]Synchronisation terminée.[/bold green]")
+            return
+        if all(status == "failed" for status in statuses):
+            console.print("[bold red]La synchronisation a échoué.[/bold red]")
+            raise click.exceptions.Exit(1)
+        console.print(
+            "[bold yellow]Synchronisation terminée, mais partielle.[/bold yellow]"
+        )
+        raise click.exceptions.Exit(2)
+    finally:
+        runtime.close()
 
 
 def display_jobs_table(jobs: List) -> None:
