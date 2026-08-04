@@ -294,7 +294,7 @@ git commit -m "feat: cache job details lazily"
 **Interfaces:**
 - Produces: `create_app(database_url: str | None = None) -> FastAPI`; endpoints `GET/POST/PATCH /api/searches`, `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/syncs`, `POST /api/syncs/{id}/retry`, `GET /api/syncs/{id}`, `GET /api/syncs/latest`.
 
-- [ ] **Step 1: Write failing API contract tests**
+- [x] **Step 1: Write failing API contract tests**
 
 ```python
 response = client.post("/api/searches", json={
@@ -309,31 +309,31 @@ assert response.status_code == 200
 assert set(response.json()) == {"items", "total", "limit", "offset"}
 ```
 
-- [ ] **Step 2: Verify routes are absent**
+- [x] **Step 2: Verify routes are absent**
 
 Run: `.venv/bin/python -m pytest tests/api -v`
 
 Expected: FAIL because `create_app` and routes do not exist.
 
-- [ ] **Step 3: Implement schemas and CRUD/list/detail routes**
+- [x] **Step 3: Implement schemas and CRUD/list/detail routes**
 
 Map `period=24h|3d|7d|all` to UTC cutoffs. Return canonical job cards with `sources[]`, `duplicateState`, and `possibleDuplicates[]`. Configure Pydantic response schemas with a camelCase alias generator so Python internals remain snake_case while the React contract is camelCase. The detail route delegates to `JobDetailsService` and returns `cacheState`, `updatedAt`, and `warning`.
 
-- [ ] **Step 4: Implement sync launch outside the request event loop**
+- [x] **Step 4: Implement sync launch outside the request event loop**
 
 `POST /api/syncs` calls `SyncService.create_run()`, returns its pending run ID, and dispatches `SyncService.execute(run_id)` through a bounded application executor. Reject a duplicate concurrent sync for the same saved search with HTTP 409 and `{"detail": "Une synchronisation est déjà en cours."}`.
 
-- [ ] **Step 5: Verify complete API suite**
+- [x] **Step 5: Verify complete API suite**
 
 Run: `.venv/bin/python -m pytest tests/api -v`
 
 Expected: search CRUD, period filters, pagination, detail cache metadata, sync progress, partial error and retry tests pass.
 
-- [ ] **Step 6: Add API entry point**
+- [x] **Step 6: Add API entry point**
 
 Add `jobscraper-api = "jobscraper.api.app:run"` to `pyproject.toml`, where `run()` starts Uvicorn on `127.0.0.1:8000` and reads `JOBSCRAPER_DATABASE_URL`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/jobscraper/api tests/api pyproject.toml
