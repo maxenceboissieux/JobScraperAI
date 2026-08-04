@@ -1,10 +1,18 @@
 """Offline contracts for authoritative full-scan detection."""
 
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from jobscraper.models.job import JobOffer, SearchCriteria
+from jobscraper.models.job import (
+    ContractType,
+    DatePosted,
+    ExperienceLevel,
+    JobOffer,
+    SearchCriteria,
+    WorkplaceType,
+)
 from jobscraper.scrapers.adzuna import AdzunaScraper
 from jobscraper.scrapers.base import IncompleteSearchError
 from jobscraper.scrapers.francetravail import FranceTravailScraper
@@ -250,6 +258,91 @@ def test_html_sources_reject_duplicate_only_page(
     assert next(iterator).id == f"{scraper.name}_1"
     with pytest.raises(IncompleteSearchError):
         next(iterator)
+
+
+def test_linkedin_uses_guest_endpoint_and_advances_offsets_until_empty_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fails if LinkedIn reloads the full search page instead of real result pages."""
+
+    scraper = LinkedInScraper({"delay": 0, "propagate_search_errors": True})
+    fetched_urls: list[str] = []
+
+    def fetch_page(url: str) -> str:
+        fetched_urls.append(url)
+        offset = parse_qs(urlparse(url).query)["start"][0]
+        return {
+            "0": '<div class="base-card" data-test-id="first"></div>',
+            "25": '<div class="base-card" data-test-id="second"></div>',
+            "50": "",
+        }[offset]
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
+    monkeypatch.setattr(
+        scraper,
+        "_parse_job_card",
+        lambda card: offer("linkedin", str(card["data-test-id"])),
+    )
+
+    jobs = list(
+        scraper.search(
+            SearchCriteria(
+                keywords=["python"],
+                location="Paris",
+                contract_types=[ContractType.CDI],
+                experience_levels=[ExperienceLevel.SENIOR],
+                workplace_types=[WorkplaceType.REMOTE],
+                date_posted=DatePosted.PAST_WEEK,
+                max_results=3,
+            )
+        )
+    )
+
+    parsed_urls = [urlparse(url) for url in fetched_urls]
+    assert [job.id for job in jobs] == ["linkedin_first", "linkedin_second"]
+    assert [url.path for url in parsed_urls] == [
+        "/jobs-guest/jobs/api/seeMoreJobPostings/search",
+        "/jobs-guest/jobs/api/seeMoreJobPostings/search",
+        "/jobs-guest/jobs/api/seeMoreJobPostings/search",
+    ]
+    assert [parse_qs(url.query)["start"] for url in parsed_urls] == [
+        ["0"],
+        ["25"],
+        ["50"],
+    ]
+    assert all("pageNum" not in parse_qs(url.query) for url in parsed_urls)
+    assert all(parse_qs(url.query)["keywords"] == ["python"] for url in parsed_urls)
+    assert all(parse_qs(url.query)["location"] == ["Paris"] for url in parsed_urls)
+    assert all(parse_qs(url.query)["f_JT"] == ["F"] for url in parsed_urls)
+    assert all(parse_qs(url.query)["f_E"] == ["4"] for url in parsed_urls)
+    assert all(parse_qs(url.query)["f_WT"] == ["2"] for url in parsed_urls)
+    assert all(parse_qs(url.query)["f_TPR"] == ["r604800"] for url in parsed_urls)
+    assert scraper.search_complete is True
+
+
+def test_linkedin_does_not_sleep_after_reaching_result_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fails if a completed capped iteration waits before returning to its caller."""
+
+    scraper = LinkedInScraper({"delay": 2, "propagate_search_errors": True})
+    sleep_delays: list[float] = []
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: '<div class="base-card" data-test-id="first"></div>',
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_parse_job_card",
+        lambda card: offer("linkedin", str(card["data-test-id"])),
+    )
+    monkeypatch.setattr("jobscraper.scrapers.linkedin.time.sleep", sleep_delays.append)
+
+    jobs = list(scraper.search(SearchCriteria(max_results=1)))
+
+    assert [job.id for job in jobs] == ["linkedin_first"]
+    assert sleep_delays == []
 
 
 def test_wttj_rejects_duplicate_only_page(monkeypatch: pytest.MonkeyPatch) -> None:

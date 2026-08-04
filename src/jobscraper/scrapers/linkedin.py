@@ -140,6 +140,9 @@ class LinkedInScraper(BaseScraper):
                         new_jobs_on_page += 1
                         yield job
 
+                if jobs_found >= max_results:
+                    break
+
                 if parsed_jobs_on_page != len(job_cards):
                     self._incomplete_search(
                         "Une partie des résultats LinkedIn est inexploitables"
@@ -195,7 +198,7 @@ class LinkedInScraper(BaseScraper):
         Returns:
             URL de recherche formatée
         """
-        base = f"{self.base_url}/jobs/search"
+        base = f"{self.base_url}/jobs-guest/jobs/api/" "seeMoreJobPostings/search"
 
         # Construire les mots-clés avec le titre si spécifié
         keywords_parts = []
@@ -208,8 +211,6 @@ class LinkedInScraper(BaseScraper):
             "keywords": " ".join(keywords_parts),
             "location": criteria.location,
             "trk": "public_jobs_jobs-search-bar_search-submit",
-            "position": "1",
-            "pageNum": "0",
         }
 
         # Tri des résultats
