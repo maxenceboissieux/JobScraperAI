@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import JSON, Integer, String, UniqueConstraint, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -142,6 +143,33 @@ def test_alembic_upgrade_uses_canonical_duplicate_check_name(
 
     assert _reflected_duplicate_check_names(database_url) == {EXPECTED_DUPLICATE_CHECK}
     assert not sentinel_path.exists()
+
+
+def test_max_results_migration_defaults_existing_saved_searches_to_500(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'legacy-limit.db'}"
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    monkeypatch.setenv("JOBSCRAPER_DATABASE_URL", database_url)
+    command.upgrade(config, "0002")
+    engine, _ = create_engine_and_session(database_url)
+    with engine.begin() as connection:
+        connection.execute(sa.text("""
+            INSERT INTO saved_searches
+                (id, name, keywords, location, contract_types,
+                 experience_levels, workplace_types, companies,
+                 exclude_companies, sources, active, created_at, updated_at)
+            VALUES
+                ('legacy', 'Legacy', '[\"python\"]', 'France', '[]',
+                 '[]', '[]', '[]', '[]', '[\"hellowork\"]', 1,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """))
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert connection.scalar(
+            sa.text("SELECT max_results FROM saved_searches WHERE id='legacy'")
+        ) == 500
 
 
 def _database_with_two_jobs(

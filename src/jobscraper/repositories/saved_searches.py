@@ -43,6 +43,7 @@ class SavedSearchRepository:
             companies=list(criteria.companies),
             exclude_companies=list(criteria.exclude_companies),
             salary_min=criteria.salary_min,
+            max_results=criteria.max_results,
             sources=list(sources),
             active=active,
         )
@@ -85,6 +86,7 @@ class SavedSearchRepository:
             saved_search.companies = list(criteria.companies)
             saved_search.exclude_companies = list(criteria.exclude_companies)
             saved_search.salary_min = criteria.salary_min
+            saved_search.max_results = criteria.max_results
         if sources is not None:
             saved_search.sources = list(sources)
         if active is not None:

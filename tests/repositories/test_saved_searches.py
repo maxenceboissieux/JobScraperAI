@@ -42,6 +42,7 @@ def test_saved_search_crud_preserves_criteria_and_filters_active_state(
         companies=["Acme"],
         exclude_companies=["Umbrella"],
         salary_min=60_000,
+        max_results=250,
     )
 
     created = repository.create(
@@ -55,10 +56,17 @@ def test_saved_search_crud_preserves_criteria_and_filters_active_state(
     assert loaded.contract_types == ["cdi"]
     assert loaded.workplace_types == ["remote"]
     assert loaded.sources == ["freework", "wttj"]
+    assert loaded.max_results == 250
 
-    updated = repository.update(created.id, name="Backend Python", active=False)
+    updated = repository.update(
+        created.id,
+        name="Backend Python",
+        criteria=SearchCriteria(max_results=1_000),
+        active=False,
+    )
     assert updated is not None
     assert updated.name == "Backend Python"
+    assert updated.max_results == 1_000
     assert repository.list(active=False) == [updated]
     assert repository.list(active=True) == []
 

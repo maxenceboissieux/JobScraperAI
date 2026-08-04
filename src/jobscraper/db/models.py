@@ -56,6 +56,7 @@ class SavedSearch(Base):
         JSON, default=list, nullable=False
     )
     salary_min: Mapped[int | None] = mapped_column(Integer)
+    max_results: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
     sources: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, index=True
