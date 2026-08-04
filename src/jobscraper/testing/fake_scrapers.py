@@ -38,7 +38,13 @@ def _offer(source: str, now: datetime, *, detailed: bool) -> JobOffer | None:
             title="Développeur Python",
             company="Example Labs",
             location="Paris",
-            description="Description mise en cache" if detailed else None,
+            description=(
+                "DESCRIPTION DU POSTE"
+                "Vous rejoignez une équipe produit."
+                "VOS MISSIONS : Comprendre le besoin ; Développer ; Tester."
+                if detailed
+                else None
+            ),
             salary_min=58_000,
             salary_max=68_000,
             contract_type=ContractType.CDI,

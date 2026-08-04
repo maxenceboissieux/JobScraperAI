@@ -83,7 +83,15 @@ test("recherche, synchronisation, filtres, cache et doublon possible", async ({
   await expect(page.getByText("2 offres", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Voir l’offre Développeur Python" }).click();
   let drawer = page.getByRole("dialog", { name: "Détails de l’offre" });
-  await expect(drawer).toContainText("Description mise en cache");
+  const dialog = page.getByRole("dialog", { name: "Détails de l’offre" });
+  await expect(
+    dialog.getByRole("heading", { name: "DESCRIPTION DU POSTE" }),
+  ).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "VOS MISSIONS" })).toBeVisible();
+  await expect(
+    dialog.getByRole("listitem").filter({ hasText: "Développer" }),
+  ).toBeVisible();
+  await expect(drawer).toContainText("Vous rejoignez une équipe produit.");
   await expect(drawer).toContainText("Compétences");
   await expect(drawer).toContainText("FastAPI");
   await expect(drawer).toContainText("Avantages");
@@ -99,7 +107,7 @@ test("recherche, synchronisation, filtres, cache et doublon possible", async ({
   await page.reload();
   await page.getByRole("button", { name: "Voir l’offre Développeur Python" }).click();
   drawer = page.getByRole("dialog", { name: "Détails de l’offre" });
-  await expect(drawer).toContainText("Description mise en cache");
+  await expect(drawer).toContainText("Vous rejoignez une équipe produit.");
   await expect.poll(() => detailCalls("freework")).toBe(1);
   expect(detailApiRequests).toHaveLength(2);
 
