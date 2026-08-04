@@ -179,12 +179,12 @@ class AdzunaScraper(BaseScraper):
                     page += 1
 
                 except requests.RequestException as e:
-                    logger.error(f"Erreur API Adzuna: {e}")
+                    logger.error("Erreur API Adzuna: {}", type(e).__name__)
                     if self.config.get("propagate_search_errors"):
                         raise
                     return
                 except Exception as e:
-                    logger.error(f"Erreur lors de la recherche: {e}")
+                    logger.error("Erreur lors de la recherche: {}", type(e).__name__)
                     if self.config.get("propagate_search_errors"):
                         raise
                     return

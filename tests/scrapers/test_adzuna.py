@@ -1,6 +1,8 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+import requests
+from loguru import logger
 
 from jobscraper.models.job import ContractType, SearchCriteria
 from jobscraper.scrapers.adzuna import AdzunaScraper
@@ -115,6 +117,37 @@ def test_unsupported_contracts_complete_without_request(
         )
     ) == []
     assert scraper.search_complete is True
+
+
+def test_http_error_logs_no_authenticated_url(
+    scraper: AdzunaScraper, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    error = requests.HTTPError(
+        "404 Client Error: Not Found for url: "
+        "https://api.adzuna.com/search?app_id=secret-id&app_key=secret-key"
+    )
+    messages: list[str] = []
+    handler_id = logger.add(
+        lambda message: messages.append(str(message)), format="{message}"
+    )
+
+    def request(_operation):
+        raise error
+
+    monkeypatch.setattr(
+        scraper,
+        "_request_with_retry",
+        request,
+    )
+
+    try:
+        assert list(scraper.search(SearchCriteria(max_results=1))) == []
+    finally:
+        logger.remove(handler_id)
+
+    log_output = "\n".join(messages)
+    assert "secret-id" not in log_output
+    assert "secret-key" not in log_output
 
 
 @pytest.mark.parametrize(
