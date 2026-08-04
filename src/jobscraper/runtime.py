@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -29,6 +31,31 @@ from jobscraper.services.sync import SyncService
 
 DEFAULT_DATABASE_URL = "sqlite:///./data/jobscraper.db"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _scraper_registry_from_environment() -> ScraperRegistry:
+    """Select live adapters by default and opt into the E2E registry explicitly."""
+
+    mode = os.getenv("JOBSCRAPER_SCRAPER_MODE", "live").strip().casefold()
+    if mode in {"", "live"}:
+        return ScraperRegistry()
+    if mode != "fake":
+        raise RuntimeError(f"Mode de scrapers inconnu : {mode}.")
+    environment = os.getenv("JOBSCRAPER_ENV", "").strip().casefold()
+    if environment == "production":
+        raise RuntimeError("Le mode fake est interdit dans l’environnement production.")
+
+    try:
+        fixture_module = importlib.import_module("tests.e2e.fake_scrapers")
+        registry = fixture_module.build_fake_registry()
+    except Exception as exc:
+        raise RuntimeError(
+            "Le registry fake E2E est indisponible; lancez la commande depuis "
+            "la racine du projet."
+        ) from exc
+    if not isinstance(registry, ScraperRegistry):
+        raise RuntimeError("Le registry fake E2E est invalide.")
+    return registry
 
 
 def _ensure_sqlite_parent(database_url: str) -> None:
@@ -120,6 +147,7 @@ class RuntimeServices:
 def build_runtime(database_url: str) -> RuntimeServices:
     """Compose one reusable set of database, scraper, and domain services."""
 
+    registry = _scraper_registry_from_environment()
     _ensure_sqlite_parent(database_url)
     engine, session_factory = create_engine_and_session(database_url)
     try:
@@ -127,7 +155,7 @@ def build_runtime(database_url: str) -> RuntimeServices:
             database_url=database_url,
             engine=engine,
             session_factory=session_factory,
-            registry=ScraperRegistry(),
+            registry=registry,
             classifier=classify_duplicate,
         )
     except Exception:

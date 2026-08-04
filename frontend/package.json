@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "e2e": "sh ../scripts/run-e2e.sh",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -21,6 +22,7 @@
     "react-router-dom": "^7.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@testing-library/dom": "^10.0.0",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "^16.0.0",
