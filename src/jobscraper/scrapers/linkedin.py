@@ -99,16 +99,19 @@ class LinkedInScraper(BaseScraper):
             JobOffer: Les offres d'emploi trouvées
         """
         self._begin_search()
-        url = self._build_search_url(criteria)
-        logger.info(f"Recherche LinkedIn: {url}")
+        initial_url = self._build_search_url(criteria)
+        guest_url = self._build_search_url(criteria, guest=True)
+        logger.info(f"Recherche LinkedIn: {initial_url}")
 
         start = 0
         jobs_found = 0
         max_results = criteria.max_results
         seen_ids: set = set()  # Pour la déduplication
+        initial_page = True
+        empty_page_seen = False
 
         while jobs_found < max_results:
-            page_url = f"{url}&start={start}"
+            page_url = f"{initial_url if initial_page else guest_url}&start={start}"
             logger.debug(f"Récupération page: {page_url}")
 
             try:
@@ -118,9 +121,15 @@ class LinkedInScraper(BaseScraper):
                 job_cards = self._extract_job_cards(soup)
 
                 if not job_cards:
-                    logger.info("Plus d'offres trouvées")
-                    self._mark_search_complete()
-                    break
+                    if empty_page_seen:
+                        logger.info("Plus d'offres trouvées")
+                        self._mark_search_complete()
+                        break
+                    empty_page_seen = True
+                    time.sleep(self.delay_between_requests)
+                    continue
+
+                empty_page_seen = False
 
                 new_jobs_on_page = 0
                 parsed_jobs_on_page = 0
@@ -156,7 +165,8 @@ class LinkedInScraper(BaseScraper):
                     )
                     break
 
-                start += 25  # LinkedIn pagine par 25
+                start += len(job_cards)
+                initial_page = False
                 time.sleep(self.delay_between_requests)
 
             except Exception as e:
@@ -188,7 +198,9 @@ class LinkedInScraper(BaseScraper):
             logger.error(f"Erreur récupération détails job {job_id}: {e}")
             return None
 
-    def _build_search_url(self, criteria: SearchCriteria) -> str:
+    def _build_search_url(
+        self, criteria: SearchCriteria, *, guest: bool = False
+    ) -> str:
         """
         Construit l'URL de recherche LinkedIn avec tous les filtres disponibles.
 
@@ -198,7 +210,10 @@ class LinkedInScraper(BaseScraper):
         Returns:
             URL de recherche formatée
         """
-        base = f"{self.base_url}/jobs-guest/jobs/api/" "seeMoreJobPostings/search"
+        if guest:
+            base = f"{self.base_url}/jobs-guest/jobs/api/seeMoreJobPostings/search"
+        else:
+            base = f"{self.base_url}/jobs/search"
 
         # Construire les mots-clés avec le titre si spécifié
         keywords_parts = []
@@ -212,6 +227,8 @@ class LinkedInScraper(BaseScraper):
             "location": criteria.location,
             "trk": "public_jobs_jobs-search-bar_search-submit",
         }
+        if not guest:
+            params.update({"position": "1", "pageNum": "0"})
 
         # Tri des résultats
         if criteria.sort_by:

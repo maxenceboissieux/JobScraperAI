@@ -260,22 +260,30 @@ def test_html_sources_reject_duplicate_only_page(
         next(iterator)
 
 
-def test_linkedin_uses_guest_endpoint_and_advances_offsets_until_empty_page(
+def test_linkedin_uses_full_initial_page_then_dynamic_guest_offsets_and_confirms_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Fails if LinkedIn reloads the full search page instead of real result pages."""
+    """Fails if LinkedIn truncates, skips, or trusts one transient empty page."""
 
     scraper = LinkedInScraper({"delay": 0, "propagate_search_errors": True})
     fetched_urls: list[str] = []
+    responses = iter(
+        [
+            (
+                '<div class="base-card" data-test-id="first"></div>'
+                '<div class="base-card" data-test-id="first"></div>'
+            ),
+            '<div class="base-card" data-test-id="third"></div>',
+            "",
+            '<div class="base-card" data-test-id="fourth"></div>',
+            "",
+            "",
+        ]
+    )
 
     def fetch_page(url: str) -> str:
         fetched_urls.append(url)
-        offset = parse_qs(urlparse(url).query)["start"][0]
-        return {
-            "0": '<div class="base-card" data-test-id="first"></div>',
-            "25": '<div class="base-card" data-test-id="second"></div>',
-            "50": "",
-        }[offset]
+        return next(responses)
 
     monkeypatch.setattr(scraper, "_fetch_page", fetch_page)
     monkeypatch.setattr(
@@ -293,24 +301,35 @@ def test_linkedin_uses_guest_endpoint_and_advances_offsets_until_empty_page(
                 experience_levels=[ExperienceLevel.SENIOR],
                 workplace_types=[WorkplaceType.REMOTE],
                 date_posted=DatePosted.PAST_WEEK,
-                max_results=3,
+                max_results=10,
             )
         )
     )
 
     parsed_urls = [urlparse(url) for url in fetched_urls]
-    assert [job.id for job in jobs] == ["linkedin_first", "linkedin_second"]
+    assert [job.id for job in jobs] == [
+        "linkedin_first",
+        "linkedin_third",
+        "linkedin_fourth",
+    ]
     assert [url.path for url in parsed_urls] == [
+        "/jobs/search",
+        "/jobs-guest/jobs/api/seeMoreJobPostings/search",
+        "/jobs-guest/jobs/api/seeMoreJobPostings/search",
         "/jobs-guest/jobs/api/seeMoreJobPostings/search",
         "/jobs-guest/jobs/api/seeMoreJobPostings/search",
         "/jobs-guest/jobs/api/seeMoreJobPostings/search",
     ]
     assert [parse_qs(url.query)["start"] for url in parsed_urls] == [
         ["0"],
-        ["25"],
-        ["50"],
+        ["2"],
+        ["3"],
+        ["3"],
+        ["4"],
+        ["4"],
     ]
-    assert all("pageNum" not in parse_qs(url.query) for url in parsed_urls)
+    assert parse_qs(parsed_urls[0].query)["pageNum"] == ["0"]
+    assert all("pageNum" not in parse_qs(url.query) for url in parsed_urls[1:])
     assert all(parse_qs(url.query)["keywords"] == ["python"] for url in parsed_urls)
     assert all(parse_qs(url.query)["location"] == ["Paris"] for url in parsed_urls)
     assert all(parse_qs(url.query)["f_JT"] == ["F"] for url in parsed_urls)
