@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
@@ -16,40 +17,52 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from jobscraper.api.routes import jobs, searches, syncs
-from jobscraper.runtime import DEFAULT_DATABASE_URL, build_runtime
+from jobscraper.runtime import DEFAULT_DATABASE_URL, RuntimeServices, build_runtime
 
 DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
 
 def create_app(
-    database_url: str | None = None, frontend_dist: str | Path | None = None
+    database_url: str | None = None,
+    frontend_dist: str | Path | None = None,
+    *,
+    runtime: RuntimeServices | None = None,
+    startup_task: Callable[[], object] | None = None,
 ) -> FastAPI:
     """Build the local aggregation API with an app-owned database/executor."""
 
-    resolved_database_url = (
+    owns_runtime = runtime is None
+    resolved_runtime = runtime or build_runtime(
         database_url or os.getenv("JOBSCRAPER_DATABASE_URL") or DEFAULT_DATABASE_URL
     )
-    runtime = build_runtime(resolved_database_url)
+    startup_task_submitted = False
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        nonlocal startup_task_submitted
         executor: ThreadPoolExecutor | None = None
         try:
-            runtime.migrate()
+            if owns_runtime:
+                resolved_runtime.migrate()
             executor = ThreadPoolExecutor(
                 max_workers=2, thread_name_prefix="jobscraper-sync"
             )
             app.state.executor = executor
+            if startup_task is not None and not startup_task_submitted:
+                startup_task_submitted = True
+                future = executor.submit(startup_task)
+                future.add_done_callback(_observe_startup_task)
             yield
         finally:
             if executor is not None:
                 executor.shutdown(wait=True, cancel_futures=True)
-            runtime.close()
+            if owns_runtime:
+                resolved_runtime.close()
 
     app = FastAPI(title="JobScraper API", lifespan=lifespan)
-    app.state.runtime = runtime
-    app.state.engine = runtime.engine
-    app.state.session_factory = runtime.session_factory
+    app.state.runtime = resolved_runtime
+    app.state.engine = resolved_runtime.engine
+    app.state.session_factory = resolved_runtime.session_factory
     # SQLite cannot safely upgrade two simultaneous read transactions to writes.
     # The database partial unique index remains the cross-process authority.
     app.state.sync_submission_lock = Lock()
@@ -95,6 +108,17 @@ def create_app(
         )
 
     return app
+
+
+def _observe_startup_task(future: Future[object]) -> None:
+    """Log background catch-up failures instead of losing executor exceptions."""
+
+    if future.cancelled():
+        return
+    try:
+        future.result()
+    except Exception:
+        logger.exception("Le rattrapage de synchronisation au démarrage a échoué")
 
 
 def run() -> None:

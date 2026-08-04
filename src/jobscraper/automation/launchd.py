@@ -31,8 +31,7 @@ class LaunchAgentStatus:
 def installed_launch_agent_path(home: Path | None = None) -> Path:
     """Return the single user-scoped plist path managed by JobScraper."""
 
-    user_home = (home or Path.home()).resolve()
-    return user_home / "Library" / "LaunchAgents" / LAUNCH_AGENT_FILENAME
+    return _validated_user_plist_path(home)
 
 
 def _validate_schedule(hour: object, minute: object) -> tuple[int, int]:

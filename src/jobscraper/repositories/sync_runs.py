@@ -115,6 +115,21 @@ class SyncRunRepository:
             statement.order_by(SyncRun.created_at.desc(), SyncRun.pk.desc())
         )
 
+    def latest_completed_at(self, saved_search_id: str) -> datetime | None:
+        """Return the newest useful completion for one saved search."""
+
+        return self.session.scalar(
+            select(SyncRun.finished_at)
+            .join(SavedSearch, SyncRun.saved_search_id == SavedSearch.pk)
+            .where(
+                SavedSearch.id == saved_search_id,
+                SyncRun.status.in_({"succeeded", "partial"}),
+                SyncRun.finished_at.is_not(None),
+            )
+            .order_by(SyncRun.finished_at.desc(), SyncRun.pk.desc())
+            .limit(1)
+        )
+
     def source_results(self, run_id: str) -> list[SourceSyncResult]:
         """Return persisted source state for a public run UUID."""
 
