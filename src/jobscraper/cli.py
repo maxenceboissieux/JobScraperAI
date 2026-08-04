@@ -37,7 +37,12 @@ from jobscraper.models.job import (
     SortBy,
     WorkplaceType,
 )
-from jobscraper.runtime import DEFAULT_DATABASE_URL, SessionServices, build_runtime
+from jobscraper.runtime import (
+    DEFAULT_DATABASE_URL,
+    RuntimeServices,
+    SessionServices,
+    build_runtime,
+)
 from jobscraper.scrapers.adzuna import AdzunaScraper
 from jobscraper.scrapers.francetravail import FranceTravailScraper
 from jobscraper.scrapers.freework import FreeWorkScraper
@@ -184,6 +189,31 @@ def _local_now(local_timezone: ZoneInfo) -> datetime:
     return datetime.now(local_timezone)
 
 
+def _run_startup_catchup(
+    runtime: RuntimeServices,
+    local_timezone: ZoneInfo,
+    scheduled_hour: int,
+    scheduled_minute: int,
+) -> bool:
+    """Evaluate and run catch-up inside the application-owned executor."""
+
+    service = CatchupService()
+    now = _local_now(local_timezone)
+    if not service.is_due(
+        now,
+        None,
+        scheduled_hour=scheduled_hour,
+        scheduled_minute=scheduled_minute,
+    ):
+        return False
+    return service.run_if_due(
+        runtime,
+        now=now,
+        scheduled_hour=scheduled_hour,
+        scheduled_minute=scheduled_minute,
+    )
+
+
 def _wait_until_reachable(host: str, port: int, cancelled: Event) -> bool:
     """Wait a bounded amount of time for the local HTTP socket."""
 
@@ -205,6 +235,14 @@ def _open_browser_when_ready(url: str, host: str, port: int, cancelled: Event) -
         logger.exception("Impossible d’ouvrir automatiquement le navigateur")
 
 
+def _browser_host(bind_host: str) -> str:
+    if bind_host == "0.0.0.0":
+        return "127.0.0.1"
+    if bind_host == "::":
+        return "::1"
+    return bind_host
+
+
 @main.command()
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", type=click.IntRange(1, 65535), default=8000, show_default=True)
@@ -219,7 +257,6 @@ def serve(ctx: click.Context, host: str, port: int, no_open: bool) -> None:
         local_timezone = resolve_local_timezone()
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
-    now = _local_now(local_timezone)
 
     injected_runtime = ctx.obj.get("runtime") if ctx.obj else None
     runtime = injected_runtime or build_runtime(
@@ -227,6 +264,7 @@ def serve(ctx: click.Context, host: str, port: int, no_open: bool) -> None:
     )
     browser_cancelled = Event()
     browser_thread: Thread | None = None
+    primary_error: BaseException | None = None
     try:
         try:
             runtime.migrate()
@@ -236,21 +274,13 @@ def serve(ctx: click.Context, host: str, port: int, no_open: bool) -> None:
                 "lancez `alembic upgrade head` avant de réessayer."
             ) from exc
 
-        catchup_service = CatchupService()
-        startup_task = None
-        if catchup_service.is_due(
-            now,
-            None,
-            scheduled_hour=scheduled_hour,
-            scheduled_minute=scheduled_minute,
-        ):
-            startup_task = partial(
-                catchup_service.run_if_due,
-                runtime,
-                now=now,
-                scheduled_hour=scheduled_hour,
-                scheduled_minute=scheduled_minute,
-            )
+        startup_task = partial(
+            _run_startup_catchup,
+            runtime,
+            local_timezone,
+            scheduled_hour,
+            scheduled_minute,
+        )
         app = create_app(
             frontend_dist=frontend_dist,
             runtime=runtime,
@@ -258,9 +288,7 @@ def serve(ctx: click.Context, host: str, port: int, no_open: bool) -> None:
         )
 
         if not no_open:
-            browser_host = (
-                host if host in {"127.0.0.1", "localhost", "::1"} else "127.0.0.1"
-            )
+            browser_host = _browser_host(host)
             rendered_host = f"[{browser_host}]" if ":" in browser_host else browser_host
             url = f"http://{rendered_host}:{port}"
             browser_thread = Thread(
@@ -272,11 +300,25 @@ def serve(ctx: click.Context, host: str, port: int, no_open: bool) -> None:
             browser_thread.start()
 
         uvicorn.run(app, host=host, port=port)
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
         browser_cancelled.set()
         if browser_thread is not None:
             browser_thread.join(timeout=1.0)
-        runtime.close()
+        try:
+            runtime.close()
+        except Exception as exc:
+            if primary_error is not None:
+                logger.error(
+                    "Échec secondaire pendant la fermeture des ressources JobScraper"
+                )
+            else:
+                raise click.ClickException(
+                    "Impossible de fermer correctement les ressources JobScraper. "
+                    "Redémarrez l’application avant de réessayer."
+                ) from exc
 
 
 @main.command()

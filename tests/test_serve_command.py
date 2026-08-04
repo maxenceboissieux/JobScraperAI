@@ -58,8 +58,15 @@ class FakeRuntime:
             return datetime(2026, 8, 3, 8, 45, tzinfo=timezone.utc)
         return None
 
-    def _run(self, saved_search_id: str, only_sources: object = None) -> str:
+    def _run(
+        self,
+        saved_search_id: str,
+        only_sources: object = None,
+        *,
+        reject_active: bool = False,
+    ) -> str:
         del only_sources
+        assert reject_active is True
         self.events.append(f"sync:{saved_search_id}")
         return f"run-{saved_search_id}"
 
@@ -190,6 +197,42 @@ def test_serve_does_not_submit_catchup_before_the_custom_schedule(
     assert all(not event.startswith("sync:") for event in runtime.events)
 
 
+def test_serve_reads_clock_after_migration_crosses_the_schedule(
+    monkeypatch: pytest.MonkeyPatch, built_frontend: Path
+) -> None:
+    """Fails if a 07:59 timestamp captured before migration suppresses an 08:00 run."""
+
+    runtime = FakeRuntime()
+    clock = {"now": datetime(2026, 8, 3, 7, 59, tzinfo=PARIS)}
+
+    def migrate_across_schedule() -> None:
+        runtime.events.append("migrate")
+        clock["now"] = datetime(2026, 8, 3, 8, 0, tzinfo=PARIS)
+
+    def fake_uvicorn_run(app: object, **_kwargs: object) -> None:
+        with TestClient(app):  # type: ignore[arg-type]
+            pass
+
+    runtime.migrate = migrate_across_schedule  # type: ignore[method-assign]
+    monkeypatch.setattr(cli_module, "build_runtime", lambda _url: runtime)
+    monkeypatch.setattr(
+        cli_module, "DEFAULT_FRONTEND_DIST", built_frontend, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "resolve_local_timezone", lambda: PARIS, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "_read_launch_agent_schedule", lambda: (8, 0), raising=False
+    )
+    monkeypatch.setattr(cli_module, "_local_now", lambda _timezone: clock["now"])
+    monkeypatch.setattr("uvicorn.run", fake_uvicorn_run)
+
+    result = CliRunner().invoke(main, ["serve", "--no-open"])
+
+    assert result.exit_code == 0, result.output
+    assert runtime.events.count("sync:missing") == 1
+
+
 @pytest.mark.parametrize("missing_part", ["index", "assets", "asset-file"])
 def test_serve_requires_a_complete_frontend_build_before_database_startup(
     monkeypatch: pytest.MonkeyPatch,
@@ -245,6 +288,96 @@ def test_serve_reports_migration_failure_in_french_and_closes_runtime(
     assert "alembic upgrade head" in result.output
     assert "database-token" not in result.output
     assert runtime.closed is True
+
+
+def test_close_failure_never_masks_the_actionable_migration_error(
+    monkeypatch: pytest.MonkeyPatch, built_frontend: Path
+) -> None:
+    """Fails if cleanup replaces the primary ClickException from migration."""
+
+    runtime = FakeRuntime()
+
+    def reject_migration() -> None:
+        raise RuntimeError("migration-token=secret")
+
+    def reject_close() -> None:
+        raise RuntimeError("close-token=secret")
+
+    runtime.migrate = reject_migration  # type: ignore[method-assign]
+    runtime.close = reject_close  # type: ignore[method-assign]
+    monkeypatch.setattr(cli_module, "build_runtime", lambda _url: runtime)
+    monkeypatch.setattr(
+        cli_module, "DEFAULT_FRONTEND_DIST", built_frontend, raising=False
+    )
+
+    result = CliRunner().invoke(main, ["serve", "--no-open"])
+
+    assert result.exit_code == 1
+    assert "migration" in result.output.casefold()
+    assert "alembic upgrade head" in result.output
+    assert "close-token" not in result.output
+
+
+def test_close_failure_never_masks_the_uvicorn_error(
+    monkeypatch: pytest.MonkeyPatch, built_frontend: Path
+) -> None:
+    """Fails if cleanup replaces a primary server startup/runtime exception."""
+
+    runtime = FakeRuntime()
+    uvicorn_error = RuntimeError("uvicorn-primary")
+
+    def reject_close() -> None:
+        raise RuntimeError("close-secondary")
+
+    runtime.close = reject_close  # type: ignore[method-assign]
+    monkeypatch.setattr(cli_module, "build_runtime", lambda _url: runtime)
+    monkeypatch.setattr(
+        cli_module, "DEFAULT_FRONTEND_DIST", built_frontend, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "resolve_local_timezone", lambda: PARIS, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "_read_launch_agent_schedule", lambda: (8, 0), raising=False
+    )
+    monkeypatch.setattr(
+        "uvicorn.run", lambda _app, **_kwargs: (_ for _ in ()).throw(uvicorn_error)
+    )
+
+    result = CliRunner().invoke(main, ["serve", "--no-open"])
+
+    assert result.exception is uvicorn_error
+
+
+def test_close_failure_alone_becomes_an_actionable_french_error(
+    monkeypatch: pytest.MonkeyPatch, built_frontend: Path
+) -> None:
+    """Fails if a lone cleanup failure escapes without an actionable CLI message."""
+
+    runtime = FakeRuntime()
+
+    def reject_close() -> None:
+        raise RuntimeError("close-token=secret")
+
+    runtime.close = reject_close  # type: ignore[method-assign]
+    monkeypatch.setattr(cli_module, "build_runtime", lambda _url: runtime)
+    monkeypatch.setattr(
+        cli_module, "DEFAULT_FRONTEND_DIST", built_frontend, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "resolve_local_timezone", lambda: PARIS, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "_read_launch_agent_schedule", lambda: (8, 0), raising=False
+    )
+    monkeypatch.setattr("uvicorn.run", lambda _app, **_kwargs: None)
+
+    result = CliRunner().invoke(main, ["serve", "--no-open"])
+
+    assert result.exit_code == 1
+    assert "fermer" in result.output.casefold()
+    assert "ressources" in result.output.casefold()
+    assert "close-token" not in result.output
 
 
 def test_schedule_defaults_only_when_the_user_plist_is_absent(tmp_path: Path) -> None:
@@ -368,6 +501,70 @@ def test_browser_opens_loopback_only_after_readiness_while_binding_requested_hos
         "host": "0.0.0.0",
         "port": 4567,
         "url": "http://127.0.0.1:4567",
+    }
+
+
+@pytest.mark.parametrize(
+    ("bind_host", "probe_host", "browser_url"),
+    [
+        ("::", "::1", "http://[::1]:4568"),
+        ("192.0.2.10", "192.0.2.10", "http://192.0.2.10:4568"),
+        ("2001:db8::10", "2001:db8::10", "http://[2001:db8::10]:4568"),
+    ],
+)
+def test_browser_probe_matches_ipv6_wildcard_or_concrete_bind_host(
+    monkeypatch: pytest.MonkeyPatch,
+    built_frontend: Path,
+    bind_host: str,
+    probe_host: str,
+    browser_url: str,
+) -> None:
+    """Fails if a concrete bind is probed through unrelated IPv4 loopback."""
+
+    runtime = FakeRuntime()
+    opened = Event()
+    observed: dict[str, object] = {}
+
+    def fake_wait(host: str, port: int, _cancelled: Event) -> bool:
+        observed["probe"] = (host, port)
+        return True
+
+    def fake_open(url: str) -> bool:
+        observed["url"] = url
+        opened.set()
+        return True
+
+    def fake_uvicorn_run(_app: object, **kwargs: object) -> None:
+        observed["bind"] = (kwargs["host"], kwargs["port"])
+        assert opened.wait(timeout=1)
+
+    monkeypatch.setattr(cli_module, "build_runtime", lambda _url: runtime)
+    monkeypatch.setattr(
+        cli_module, "DEFAULT_FRONTEND_DIST", built_frontend, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "resolve_local_timezone", lambda: PARIS, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module, "_read_launch_agent_schedule", lambda: (8, 0), raising=False
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_local_now",
+        lambda _timezone: datetime(2026, 8, 3, 7, 0, tzinfo=PARIS),
+        raising=False,
+    )
+    monkeypatch.setattr(cli_module, "_wait_until_reachable", fake_wait)
+    monkeypatch.setattr("webbrowser.open", fake_open)
+    monkeypatch.setattr("uvicorn.run", fake_uvicorn_run)
+
+    result = CliRunner().invoke(main, ["serve", "--host", bind_host, "--port", "4568"])
+
+    assert result.exit_code == 0, result.output
+    assert observed == {
+        "bind": (bind_host, 4568),
+        "probe": (probe_host, 4568),
+        "url": browser_url,
     }
 
 

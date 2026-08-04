@@ -171,10 +171,20 @@ class SyncService:
         self.sync_runs.finish(run_id, status=final_status)
         self.session.commit()
 
-    def run(self, saved_search_id: str, only_sources: set[str] | None = None) -> str:
+    def run(
+        self,
+        saved_search_id: str,
+        only_sources: set[str] | None = None,
+        *,
+        reject_active: bool = False,
+    ) -> str:
         """Create and synchronously execute a run for CLI-style callers."""
 
-        run_id = self.create_run(saved_search_id, only_sources=only_sources)
+        run_id = self.create_run(
+            saved_search_id,
+            only_sources=only_sources,
+            reject_active=reject_active,
+        )
         self.execute(run_id)
         return run_id
 

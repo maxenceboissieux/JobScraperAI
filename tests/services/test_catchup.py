@@ -9,9 +9,12 @@ from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import func, select
 
+from jobscraper.db.models import SavedSearch, SyncRun
 from jobscraper.models.job import SearchCriteria
 from jobscraper.runtime import build_runtime
+from jobscraper.scrapers.base import BaseScraper
 from jobscraper.services.catchup import CatchupService
 
 PARIS = ZoneInfo("Europe/Paris")
@@ -28,9 +31,17 @@ class FakeSyncRuns:
 @dataclass
 class FakeSyncService:
     calls: list[tuple[str, set[str] | None]] = field(default_factory=list)
+    reject_active_calls: list[bool] = field(default_factory=list)
 
-    def run(self, saved_search_id: str, only_sources: set[str] | None = None) -> str:
+    def run(
+        self,
+        saved_search_id: str,
+        only_sources: set[str] | None = None,
+        *,
+        reject_active: bool = False,
+    ) -> str:
         self.calls.append((saved_search_id, only_sources))
+        self.reject_active_calls.append(reject_active)
         return f"run-{saved_search_id}"
 
 
@@ -50,6 +61,24 @@ class FakeRuntime:
     @contextmanager
     def session_services(self) -> Iterator[FakeRuntime]:
         yield self
+
+
+class EmptyScraper(BaseScraper):
+    name = "freework"
+
+    def search(self, criteria: SearchCriteria) -> Iterator[Any]:
+        del criteria
+        return iter(())
+
+    def get_job_details(self, job_id: str) -> None:
+        del job_id
+        return None
+
+
+class EmptyRegistry:
+    def create(self, source: str) -> EmptyScraper:
+        assert source == "freework"
+        return EmptyScraper()
 
 
 @pytest.mark.parametrize(
@@ -180,6 +209,7 @@ def test_run_if_due_refreshes_all_active_searches_when_one_is_missing() -> None:
 
     assert submitted is True
     assert runtime.sync_service.calls == [("fresh", None), ("missing", None)]
+    assert runtime.sync_service.reject_active_calls == [True, True]
 
 
 def test_run_if_due_skips_when_every_active_search_completed_today() -> None:
@@ -259,5 +289,59 @@ def test_latest_completed_at_counts_partial_but_not_failed_runs(
 
             assert services.sync_runs.latest_completed_at(search.id) == partial_at
             assert services.sync_runs.latest_completed_at(failed_only.id) is None
+    finally:
+        runtime.close()
+
+
+def test_cross_session_active_collision_does_not_stop_later_due_searches(
+    tmp_path: Path,
+) -> None:
+    """Fails if one manually active search aborts catch-up for the next search."""
+
+    runtime = build_runtime(f"sqlite:///{tmp_path / 'collision.db'}")
+    runtime.registry = EmptyRegistry()  # type: ignore[assignment]
+    runtime.migrate()
+    try:
+        with runtime.session_services() as services:
+            later_due = services.saved_searches.create(
+                name="B due",
+                criteria=SearchCriteria(keywords=["data"], location="Lyon"),
+                sources=["freework"],
+            )
+            manually_active = services.saved_searches.create(
+                name="A active",
+                criteria=SearchCriteria(keywords=["python"], location="Paris"),
+                sources=["freework"],
+            )
+            services.saved_searches.session.commit()
+
+        with runtime.session_services() as manual_services:
+            manual_services.sync_service.create_run(
+                manually_active.id, reject_active=True
+            )
+
+        assert CatchupService().run_if_due(
+            runtime,
+            now=datetime(2026, 8, 4, 9, tzinfo=PARIS),
+            scheduled_hour=8,
+        )
+
+        with runtime.session_factory() as observer:
+            active_pk = observer.scalar(
+                select(SavedSearch.pk).where(SavedSearch.id == manually_active.id)
+            )
+            assert (
+                observer.scalar(
+                    select(func.count(SyncRun.pk)).where(
+                        SyncRun.saved_search_id == active_pk
+                    )
+                )
+                == 1
+            )
+            caught_up = runtime.services(observer).sync_runs.latest(
+                saved_search_id=later_due.id
+            )
+            assert caught_up is not None
+            assert caught_up.status == "succeeded"
     finally:
         runtime.close()

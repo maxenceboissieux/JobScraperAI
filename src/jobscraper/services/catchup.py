@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from loguru import logger
+
+from jobscraper.services.sync import ActiveSyncRunError
+
 if TYPE_CHECKING:
     from jobscraper.runtime import RuntimeServices
 
@@ -128,5 +132,12 @@ class CatchupService:
             if not due:
                 return False
             for saved_search in searches:
-                services.sync_service.run(saved_search.id)
+                try:
+                    services.sync_service.run(saved_search.id, reject_active=True)
+                except ActiveSyncRunError:
+                    logger.info(
+                        "Rattrapage ignoré pour la recherche {} : "
+                        "une synchronisation est déjà active",
+                        saved_search.id,
+                    )
         return True
