@@ -3,6 +3,7 @@
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 # Importing models registers every table on Base.metadata for create_all and Alembic.
 from jobscraper.db import models as _models  # noqa: F401
@@ -14,10 +15,12 @@ def create_engine_and_session(
     """Create a SQLite engine and a reusable, explicitly transactional sessionmaker."""
 
     url = URL.create("sqlite") if database_url == "sqlite://" else database_url
-    engine = create_engine(
-        url,
-        connect_args={"check_same_thread": False},
-    )
+    options: dict[str, object] = {"connect_args": {"check_same_thread": False}}
+    if database_url == "sqlite://":
+        # A normal in-memory SQLite URL creates one database per connection.
+        # API workers need to observe the same schema and rows as request code.
+        options["poolclass"] = StaticPool
+    engine = create_engine(url, **options)
 
     @event.listens_for(engine, "connect")
     def enable_sqlite_foreign_keys(dbapi_connection: object, _record: object) -> None:

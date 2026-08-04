@@ -10,10 +10,12 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -208,6 +210,14 @@ class SyncRun(Base):
     """One synchronization attempt for a saved search."""
 
     __tablename__ = "sync_runs"
+    __table_args__ = (
+        Index(
+            "uq_sync_runs_one_active_search",
+            "saved_search_id",
+            unique=True,
+            sqlite_where=text("status IN ('pending', 'running')"),
+        ),
+    )
 
     pk: Mapped[int] = mapped_column(Integer, primary_key=True)
     id: Mapped[str] = mapped_column(

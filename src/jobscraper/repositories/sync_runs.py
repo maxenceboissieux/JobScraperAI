@@ -51,6 +51,41 @@ class SyncRunRepository:
         self.session.flush()
         return run
 
+    def start_if_no_active(
+        self,
+        saved_search_id: str,
+        *,
+        requested_sources: Sequence[str],
+    ) -> SyncRun | None:
+        """Create a pending run unless this search already has active work."""
+
+        try:
+            with self.session.begin_nested():
+                return self.start(saved_search_id, requested_sources=requested_sources)
+        except IntegrityError:
+            return None
+
+    def latest(self) -> SyncRun | None:
+        """Return the globally newest synchronization attempt."""
+
+        return self.session.scalar(
+            select(SyncRun).order_by(SyncRun.created_at.desc(), SyncRun.pk.desc())
+        )
+
+    def source_results(self, run_id: str) -> list[SourceSyncResult]:
+        """Return persisted source state for a public run UUID."""
+
+        run = self.get(run_id)
+        if run is None:
+            return []
+        return list(
+            self.session.scalars(
+                select(SourceSyncResult)
+                .where(SourceSyncResult.sync_run_id == run.pk)
+                .order_by(SourceSyncResult.pk.asc())
+            )
+        )
+
     def get(self, run_id: str) -> SyncRun | None:
         """Return a run by public UUID."""
 

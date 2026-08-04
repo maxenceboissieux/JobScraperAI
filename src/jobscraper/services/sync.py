@@ -40,6 +40,10 @@ class ScraperFactory(Protocol):
         """Return a fresh scraper for ``source``."""
 
 
+class ActiveSyncRunError(RuntimeError):
+    """Raised when a saved search already has a pending or running attempt."""
+
+
 @dataclass(slots=True)
 class _SourceProgress:
     """Keep durable counters available when iterator consumption raises."""
@@ -75,7 +79,11 @@ class SyncService:
         self.sync_runs = SyncRunRepository(session)
 
     def create_run(
-        self, saved_search_id: str, only_sources: set[str] | None = None
+        self,
+        saved_search_id: str,
+        only_sources: set[str] | None = None,
+        *,
+        reject_active: bool = False,
     ) -> str:
         """Persist and commit a pending run with a stable requested-source order."""
 
@@ -103,9 +111,16 @@ class SyncService:
             )
 
         try:
-            run = self.sync_runs.start(
-                saved_search_id, requested_sources=requested_sources
-            )
+            if reject_active:
+                run = self.sync_runs.start_if_no_active(
+                    saved_search_id, requested_sources=requested_sources
+                )
+                if run is None:
+                    raise ActiveSyncRunError()
+            else:
+                run = self.sync_runs.start(
+                    saved_search_id, requested_sources=requested_sources
+                )
             run_id = run.id
             self.session.commit()
         except Exception:

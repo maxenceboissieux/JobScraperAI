@@ -56,6 +56,7 @@ async = [
 
 [project.scripts]
 jobscraper = "jobscraper.cli:main"
+jobscraper-api = "jobscraper.api.app:run"
 
 [project.urls]
 Homepage = "https://github.com/zeffut/jobscraper"
