@@ -3,6 +3,7 @@
 import os
 from datetime import datetime
 from typing import Dict, Iterator, List, Optional
+from urllib.parse import urlencode
 
 import requests
 from loguru import logger
@@ -29,12 +30,10 @@ class AdzunaScraper(BaseScraper):
     name = "adzuna"
     base_url = "https://api.adzuna.com/v1/api/jobs"
 
-    # Mapping des types de contrat
-    CONTRACT_MAPPING = {
+    # Mapping des familles de filtres de contrat prises en charge par Adzuna
+    CONTRACT_FILTER_MAPPING = {
         ContractType.CDI: "permanent",
         ContractType.CDD: "contract",
-        ContractType.STAGE: "graduate",
-        ContractType.ALTERNANCE: "graduate",
         ContractType.INTERIM: "contract",
         ContractType.FREELANCE: "contract",
     }
@@ -173,8 +172,25 @@ class AdzunaScraper(BaseScraper):
         """
         return None
 
+    def _contract_filter_families(
+        self, criteria: SearchCriteria
+    ) -> list[str | None]:
+        if not criteria.contract_types:
+            return [None]
+
+        families: list[str | None] = []
+        for contract_type in criteria.contract_types:
+            family = self.CONTRACT_FILTER_MAPPING.get(contract_type)
+            if family is not None and family not in families:
+                families.append(family)
+        return families
+
     def _build_search_url(
-        self, criteria: SearchCriteria, page: int, results_per_page: int
+        self,
+        criteria: SearchCriteria,
+        page: int,
+        results_per_page: int,
+        contract_filter: str | None = None,
     ) -> str:
         """
         Construit l'URL de requête API Adzuna.
@@ -214,15 +230,8 @@ class AdzunaScraper(BaseScraper):
             params["distance"] = criteria.radius_km
 
         # Type de contrat
-        if criteria.contract_types:
-            contract_type = criteria.contract_types[0]
-            if contract_type in self.CONTRACT_MAPPING:
-                params["contract_type"] = self.CONTRACT_MAPPING[contract_type]
-
-        # Temps plein/partiel
-        if criteria.contract_types:
-            if ContractType.CDI in criteria.contract_types:
-                params["full_time"] = 1
+        if contract_filter in {"permanent", "contract"}:
+            params[contract_filter] = 1
 
         # Date de publication
         if criteria.date_posted:
@@ -242,8 +251,7 @@ class AdzunaScraper(BaseScraper):
             params["salary_min"] = int(criteria.salary_min)
 
         # Construire l'URL
-        query_string = "&".join(f"{k}={v}" for k, v in params.items())
-        return f"{base}?{query_string}"
+        return f"{base}?{urlencode(params)}"
 
     def _parse_result(self, result: dict) -> Optional[JobOffer]:
         """
