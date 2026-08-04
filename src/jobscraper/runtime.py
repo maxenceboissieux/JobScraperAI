@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
@@ -45,20 +46,48 @@ def _ensure_sqlite_parent(database_url: str) -> None:
 
 @dataclass(slots=True)
 class RuntimeServices:
-    """Resources and session-scoped services owned by one headless invocation."""
+    """Session-neutral resources shared safely by application entry points."""
 
     database_url: str
     engine: Engine
     session_factory: sessionmaker[Session]
-    session: Session
-    saved_searches: SavedSearchRepository
-    jobs: JobRepository
-    sync_runs: SyncRunRepository
     registry: ScraperRegistry
-    deduplicator: Callable[[JobLike, JobLike], DuplicateDecision]
-    sync_service: SyncService
-    detail_service: JobDetailsService
+    classifier: Callable[[JobLike, JobLike], DuplicateDecision]
     _closed: bool = field(default=False, init=False, repr=False)
+
+    def services(self, session: Session) -> SessionServices:
+        """Compose one repository/service graph for a caller-owned session."""
+
+        jobs = JobRepository(session)
+        sync_runs = SyncRunRepository(session)
+        return SessionServices(
+            saved_searches=SavedSearchRepository(session),
+            jobs=jobs,
+            sync_runs=sync_runs,
+            sync_service=SyncService(
+                session,
+                registry=self.registry,
+                jobs=jobs,
+                sync_runs=sync_runs,
+                classifier=self.classifier,
+            ),
+            detail_service=JobDetailsService(
+                session,
+                registry=self.registry,
+                jobs=jobs,
+            ),
+        )
+
+    @contextmanager
+    def session_services(self) -> Iterator[SessionServices]:
+        """Yield a graph backed by a short-lived, rollback-safe session."""
+
+        with self.session_factory() as session:
+            try:
+                yield self.services(session)
+            except Exception:
+                session.rollback()
+                raise
 
     def migrate(self) -> None:
         """Bring the configured database schema to the current revision."""
@@ -77,9 +106,8 @@ class RuntimeServices:
         if self._closed:
             return
         try:
-            self.session.close()
-        finally:
             self.engine.dispose()
+        finally:
             self._closed = True
 
     def __enter__(self) -> RuntimeServices:
@@ -94,20 +122,25 @@ def build_runtime(database_url: str) -> RuntimeServices:
 
     _ensure_sqlite_parent(database_url)
     engine, session_factory = create_engine_and_session(database_url)
-    session = session_factory()
-    registry = ScraperRegistry()
-    sync_service = SyncService(session, registry=registry)
-    detail_service = JobDetailsService(session, registry=registry)
-    return RuntimeServices(
-        database_url=database_url,
-        engine=engine,
-        session_factory=session_factory,
-        session=session,
-        saved_searches=SavedSearchRepository(session),
-        jobs=sync_service.jobs,
-        sync_runs=sync_service.sync_runs,
-        registry=registry,
-        deduplicator=classify_duplicate,
-        sync_service=sync_service,
-        detail_service=detail_service,
-    )
+    try:
+        return RuntimeServices(
+            database_url=database_url,
+            engine=engine,
+            session_factory=session_factory,
+            registry=ScraperRegistry(),
+            classifier=classify_duplicate,
+        )
+    except Exception:
+        engine.dispose()
+        raise
+
+
+@dataclass(frozen=True, slots=True)
+class SessionServices:
+    """Repositories and services sharing exactly one caller-owned session."""
+
+    saved_searches: SavedSearchRepository
+    jobs: JobRepository
+    sync_runs: SyncRunRepository
+    sync_service: SyncService
+    detail_service: JobDetailsService

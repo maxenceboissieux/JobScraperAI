@@ -19,7 +19,7 @@ from jobscraper.models.job import (
     SortBy,
     WorkplaceType,
 )
-from jobscraper.runtime import DEFAULT_DATABASE_URL, RuntimeServices, build_runtime
+from jobscraper.runtime import DEFAULT_DATABASE_URL, SessionServices, build_runtime
 from jobscraper.scrapers.adzuna import AdzunaScraper
 from jobscraper.scrapers.francetravail import FranceTravailScraper
 from jobscraper.scrapers.freework import FreeWorkScraper
@@ -363,11 +363,11 @@ def _sync_status_label(status: str) -> str:
 
 
 def _display_sync_results(
-    runtime: RuntimeServices, search_name: str, run_id: str
+    services: SessionServices, search_name: str, run_id: str
 ) -> str:
     """Render one run's durable per-source results and return its status."""
 
-    run = runtime.sync_runs.get(run_id)
+    run = services.sync_runs.get(run_id)
     if run is None:
         raise RuntimeError("La synchronisation terminée est introuvable.")
     table = Table(title=f"Synchronisation — {search_name}")
@@ -376,7 +376,7 @@ def _display_sync_results(
     table.add_column("Trouvées", justify="right")
     table.add_column("Enregistrées", justify="right")
     table.add_column("Erreur")
-    for result in runtime.sync_runs.source_results(run_id):
+    for result in services.sync_runs.source_results(run_id):
         table.add_row(
             result.source,
             _sync_status_label(result.status),
@@ -411,30 +411,44 @@ def sync_saved_searches(
     )
     try:
         runtime.migrate()
-        if search_id is None:
-            searches = runtime.saved_searches.list(active=True)
-        else:
-            selected = runtime.saved_searches.get(str(search_id))
-            if selected is None:
-                raise click.ClickException(
-                    "La recherche enregistrée demandée n’existe pas."
+        with runtime.session_services() as services:
+            if search_id is None:
+                searches = services.saved_searches.list(active=True)
+            else:
+                selected = services.saved_searches.get(str(search_id))
+                if selected is None:
+                    raise click.ClickException(
+                        "La recherche enregistrée demandée n’existe pas."
+                    )
+                if source is not None and source not in selected.sources:
+                    raise click.ClickException(
+                        f"La source {source} ne fait pas partie de cette recherche."
+                    )
+                searches = [selected]
+
+            if not searches:
+                console.print(
+                    "[yellow]Aucune recherche active. "
+                    "Activez-en une dans l’interface avant de relancer.[/yellow]"
                 )
-            searches = [selected]
+                return
 
-        if not searches:
-            console.print(
-                "[yellow]Aucune recherche active. "
-                "Activez-en une dans l’interface avant de relancer.[/yellow]"
-            )
-            return
+            if source is not None and search_id is None:
+                searches = [search for search in searches if source in search.sources]
+                if not searches:
+                    raise click.ClickException(
+                        f"Aucune recherche active ne configure la source {source}."
+                    )
 
-        statuses: list[str] = []
-        only_sources = None if source is None else {source}
-        for saved_search in searches:
-            run_id = runtime.sync_service.run(
-                saved_search.id, only_sources=only_sources
-            )
-            statuses.append(_display_sync_results(runtime, saved_search.name, run_id))
+            statuses: list[str] = []
+            only_sources = None if source is None else {source}
+            for saved_search in searches:
+                run_id = services.sync_service.run(
+                    saved_search.id, only_sources=only_sources
+                )
+                statuses.append(
+                    _display_sync_results(services, saved_search.name, run_id)
+                )
 
         if all(status == "succeeded" for status in statuses):
             console.print("[bold green]Synchronisation terminée.[/bold green]")

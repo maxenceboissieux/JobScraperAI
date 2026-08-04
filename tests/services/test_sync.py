@@ -32,6 +32,7 @@ from jobscraper.scrapers.hellowork import HelloWorkScraper
 from jobscraper.scrapers.linkedin import LinkedInScraper
 from jobscraper.scrapers.registry import ScraperRegistry
 from jobscraper.scrapers.wttj import WTTJScraper
+from jobscraper.services.deduplication import DuplicateDecision
 from jobscraper.services.sync import SyncService
 
 NOW = datetime(2026, 8, 4, 12, tzinfo=timezone.utc)
@@ -157,6 +158,29 @@ def test_mixed_source_outcomes_persist_success_and_finish_partial(
     assert session.scalar(select(func.count(SearchListing.pk))) == 1
     assert registry.created == ["freework", "linkedin"]
     assert all(scraper.closed for scraper in registry.instances)
+
+
+def test_sync_service_calls_injected_duplicate_classifier(session: Session) -> None:
+    saved_search = SavedSearchRepository(session).create(
+        name="Python",
+        criteria=SearchCriteria(keywords=["python"]),
+        sources=["freework", "linkedin"],
+    )
+    registry = FakeRegistry(
+        {
+            "freework": ScrapeScenario(offers=[offer("fw-1")]),
+            "linkedin": ScrapeScenario(offers=[offer("li-1", source="linkedin")]),
+        }
+    )
+    classified: list[tuple[CanonicalJob, CanonicalJob]] = []
+
+    def classifier(left: CanonicalJob, right: CanonicalJob) -> DuplicateDecision:
+        classified.append((left, right))
+        return DuplicateDecision("none", 0.0, ("test_classifier",))
+
+    SyncService(session, registry=registry, classifier=classifier).run(saved_search.id)
+
+    assert len(classified) == 1
 
 
 def test_partial_source_keeps_each_committed_offer_and_closes_scraper(

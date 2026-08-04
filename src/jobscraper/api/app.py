@@ -14,38 +14,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from sqlalchemy.engine import make_url
 
-from alembic import command
-from alembic.config import Config as AlembicConfig
 from jobscraper.api.routes import jobs, searches, syncs
-from jobscraper.db.base import Base
-from jobscraper.db.session import create_engine_and_session
+from jobscraper.runtime import DEFAULT_DATABASE_URL, build_runtime
 
-DEFAULT_DATABASE_URL = "sqlite:///./data/jobscraper.db"
 DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
-
-
-def _upgrade(database_url: str) -> None:
-    """Apply migrations before requests can use an existing local database."""
-
-    config = AlembicConfig(str(Path(__file__).parents[3] / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", database_url)
-    config.attributes["database_url"] = database_url
-    command.upgrade(config, "head")
-
-
-def _ensure_sqlite_parent(database_url: str) -> None:
-    """Create the directory for a file-backed SQLite database on first launch."""
-
-    url = make_url(database_url)
-    if not url.drivername.startswith("sqlite") or url.database in {
-        None,
-        "",
-        ":memory:",
-    }:
-        return
-    Path(url.database).expanduser().parent.mkdir(parents=True, exist_ok=True)
 
 
 def create_app(
@@ -56,27 +29,27 @@ def create_app(
     resolved_database_url = (
         database_url or os.getenv("JOBSCRAPER_DATABASE_URL") or DEFAULT_DATABASE_URL
     )
-    _ensure_sqlite_parent(resolved_database_url)
-    engine, factory = create_engine_and_session(resolved_database_url)
+    runtime = build_runtime(resolved_database_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        if resolved_database_url == "sqlite://":
-            Base.metadata.create_all(engine)
-        else:
-            _upgrade(resolved_database_url)
-        app.state.executor = ThreadPoolExecutor(
-            max_workers=2, thread_name_prefix="jobscraper-sync"
-        )
+        executor: ThreadPoolExecutor | None = None
         try:
+            runtime.migrate()
+            executor = ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="jobscraper-sync"
+            )
+            app.state.executor = executor
             yield
         finally:
-            app.state.executor.shutdown(wait=True, cancel_futures=True)
-            engine.dispose()
+            if executor is not None:
+                executor.shutdown(wait=True, cancel_futures=True)
+            runtime.close()
 
     app = FastAPI(title="JobScraper API", lifespan=lifespan)
-    app.state.engine = engine
-    app.state.session_factory = factory
+    app.state.runtime = runtime
+    app.state.engine = runtime.engine
+    app.state.session_factory = runtime.session_factory
     # SQLite cannot safely upgrade two simultaneous read transactions to writes.
     # The database partial unique index remains the cross-process authority.
     app.state.sync_submission_lock = Lock()

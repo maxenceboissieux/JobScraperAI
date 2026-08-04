@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,7 @@ from jobscraper.db.base import utc_now
 from jobscraper.db.models import CanonicalJob, DuplicateRelation, SourceListing
 from jobscraper.repositories.jobs import JobRepository
 from jobscraper.repositories.saved_searches import SavedSearchRepository
-from jobscraper.services.details import JobDetailsService, JobDetailsUnavailableError
+from jobscraper.services.details import JobDetailsUnavailableError
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -154,10 +154,14 @@ def list_jobs(
 
 @router.get("/{canonical_job_id}", response_model=JobDetails)
 def get_job(
-    canonical_job_id: str, session: Session = Depends(get_session)
+    canonical_job_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
 ) -> JobDetails:
     try:
-        details = JobDetailsService(session).get(canonical_job_id)
+        details = request.app.state.runtime.services(session).detail_service.get(
+            canonical_job_id
+        )
     except LookupError:
         raise HTTPException(
             status_code=404, detail="L’offre demandée n’existe pas."

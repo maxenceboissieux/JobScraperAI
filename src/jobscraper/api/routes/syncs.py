@@ -6,7 +6,7 @@ from concurrent.futures import Future
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from loguru import logger
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from jobscraper.api.dependencies import get_session
 from jobscraper.api.schemas import (
@@ -17,7 +17,8 @@ from jobscraper.api.schemas import (
 )
 from jobscraper.db.models import SavedSearch, SyncRun
 from jobscraper.repositories.sync_runs import SyncRunRepository
-from jobscraper.services.sync import ActiveSyncRunError, SyncService
+from jobscraper.runtime import RuntimeServices
+from jobscraper.services.sync import ActiveSyncRunError
 
 router = APIRouter(prefix="/api/syncs", tags=["syncs"])
 
@@ -61,12 +62,12 @@ def _response(session: Session, run: SyncRun) -> SyncRunResponse:
     )
 
 
-def _mark_worker_failure(factory: sessionmaker[Session], run_id: str) -> None:
+def _mark_worker_failure(runtime: RuntimeServices, run_id: str) -> None:
     """Leave a terminal record even when orchestration itself crashes."""
 
-    with factory() as session:
+    with runtime.session_factory() as session:
         try:
-            run = SyncRunRepository(session).finish(run_id, status="failed")
+            run = runtime.services(session).sync_runs.finish(run_id, status="failed")
             if run is not None:
                 session.commit()
         except Exception:
@@ -74,27 +75,27 @@ def _mark_worker_failure(factory: sessionmaker[Session], run_id: str) -> None:
             logger.exception("Impossible de finaliser la synchronisation {}", run_id)
 
 
-def execute_sync(factory: sessionmaker[Session], run_id: str) -> None:
+def execute_sync(runtime: RuntimeServices, run_id: str) -> None:
     """Run with worker-owned session; never leak background exceptions silently."""
 
-    with factory() as session:
+    with runtime.session_factory() as session:
         try:
-            SyncService(session).execute(run_id)
+            runtime.services(session).sync_service.execute(run_id)
         except Exception:
             session.rollback()
             logger.exception("Échec inattendu de la synchronisation {}", run_id)
-            _mark_worker_failure(factory, run_id)
+            _mark_worker_failure(runtime, run_id)
 
 
 def _observe_future(
-    future: Future[None], factory: sessionmaker[Session], run_id: str
+    future: Future[None], runtime: RuntimeServices, run_id: str
 ) -> None:
     """Force executor exceptions into local logs if a worker wrapper regresses."""
 
     if future.cancelled():
-        with factory() as session:
+        with runtime.session_factory() as session:
             try:
-                if SyncRunRepository(session).fail_pending(run_id):
+                if runtime.services(session).sync_runs.fail_pending(run_id):
                     session.commit()
             except Exception:
                 session.rollback()
@@ -111,7 +112,7 @@ def _observe_future(
 def _submit(request: Request, run_id: str, session: Session) -> None:
     try:
         future = request.app.state.executor.submit(
-            execute_sync, request.app.state.session_factory, run_id
+            execute_sync, request.app.state.runtime, run_id
         )
     except Exception as exc:
         logger.opt(exception=exc).error("Soumission de synchronisation refusée")
@@ -122,9 +123,7 @@ def _submit(request: Request, run_id: str, session: Session) -> None:
             detail="La synchronisation n’a pas pu être démarrée.",
         ) from None
     future.add_done_callback(
-        lambda completed: _observe_future(
-            completed, request.app.state.session_factory, run_id
-        )
+        lambda completed: _observe_future(completed, request.app.state.runtime, run_id)
     )
 
 
@@ -138,7 +137,8 @@ def _start(
     # This avoids SQLite's read-to-write lock upgrade race within one process.
     # The repository's partial unique index remains the durable arbiter.
     with request.app.state.sync_submission_lock:
-        service = SyncService(session)
+        services = request.app.state.runtime.services(session)
+        service = services.sync_service
         try:
             run_id = service.create_run(
                 saved_search_id, only_sources=sources, reject_active=True
@@ -154,7 +154,7 @@ def _start(
             ) from None
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        run = SyncRunRepository(session).get(run_id)
+        run = services.sync_runs.get(run_id)
         assert run is not None
         response = _response(session, run)
         _submit(request, run_id, session)

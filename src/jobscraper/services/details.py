@@ -59,12 +59,13 @@ class JobDetailsService:
         session: Session,
         *,
         registry: ScraperFactory | None = None,
+        jobs: JobRepository | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self.session = session
         self.registry = registry or ScraperRegistry()
         self.clock = clock
-        self.jobs = JobRepository(session)
+        self.jobs = jobs if jobs is not None else JobRepository(session)
 
     def get(
         self,

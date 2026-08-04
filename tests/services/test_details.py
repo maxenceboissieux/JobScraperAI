@@ -140,6 +140,14 @@ def service_for(
     return JobDetailsService(session, registry=registry, clock=clock), registry
 
 
+def test_detail_service_uses_injected_job_repository(session: Session) -> None:
+    jobs = JobRepository(session)
+
+    service = JobDetailsService(session, jobs=jobs)
+
+    assert service.jobs is jobs
+
+
 def test_get_refreshes_then_reuses_fresh_cache_and_falls_back_to_stale(
     session: Session,
 ) -> None:

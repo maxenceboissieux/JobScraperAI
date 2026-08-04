@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,14 +8,17 @@ from typing import Any
 
 import pytest
 from click.testing import CliRunner
+from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
 
+from jobscraper.api.app import create_app
 from jobscraper.cli import main
 from jobscraper.runtime import build_runtime
 from jobscraper.services.deduplication import classify_duplicate
 
 ACTIVE_SEARCH_ID = "11111111-1111-4111-8111-111111111111"
 INACTIVE_SEARCH_ID = "22222222-2222-4222-8222-222222222222"
+SECOND_ACTIVE_SEARCH_ID = "33333333-3333-4333-8333-333333333333"
 
 
 @dataclass
@@ -56,8 +60,9 @@ class FakeSyncService:
     def run(self, saved_search_id: str, only_sources: set[str] | None = None) -> str:
         self.calls.append((saved_search_id, only_sources))
         run_id = f"run-{saved_search_id}"
+        default_source = next(iter(only_sources)) if only_sources else "linkedin"
         status, source_outcomes = self.outcomes.get(
-            saved_search_id, ("succeeded", [("linkedin", "succeeded")])
+            saved_search_id, ("succeeded", [(default_source, "succeeded")])
         )
         self.sync_runs.runs[run_id] = SimpleNamespace(id=run_id, status=status)
         self.sync_runs.results[run_id] = [
@@ -92,6 +97,10 @@ class FakeRuntime:
     def migrate(self) -> None:
         self.events.append("migrate")
 
+    @contextmanager
+    def session_services(self) -> Any:
+        yield self
+
     def close(self) -> None:
         self.closed = True
 
@@ -105,9 +114,17 @@ def runner() -> CliRunner:
 def runtime() -> FakeRuntime:
     return FakeRuntime(
         searches=[
-            SimpleNamespace(id=ACTIVE_SEARCH_ID, name="Python Paris", active=True),
             SimpleNamespace(
-                id=INACTIVE_SEARCH_ID, name="Ancienne recherche", active=False
+                id=ACTIVE_SEARCH_ID,
+                name="Python Paris",
+                active=True,
+                sources=["linkedin", "freework"],
+            ),
+            SimpleNamespace(
+                id=INACTIVE_SEARCH_ID,
+                name="Ancienne recherche",
+                active=False,
+                sources=["linkedin"],
             ),
         ]
     )
@@ -171,6 +188,98 @@ def test_sync_saved_searches_passes_validated_source_filter(
     assert runtime.sync_service.calls == [(ACTIVE_SEARCH_ID, {"freework"})]
 
 
+def test_sync_saved_searches_filters_all_searches_before_first_source_run(
+    runner: CliRunner,
+) -> None:
+    runtime = FakeRuntime(
+        searches=[
+            SimpleNamespace(
+                id=ACTIVE_SEARCH_ID,
+                name="LinkedIn",
+                active=True,
+                sources=["linkedin"],
+            ),
+            SimpleNamespace(
+                id=SECOND_ACTIVE_SEARCH_ID,
+                name="Free-Work",
+                active=True,
+                sources=["freework"],
+            ),
+        ]
+    )
+
+    result = runner.invoke(
+        main,
+        ["sync-saved-searches", "--source", "freework"],
+        obj={"runtime": runtime},
+    )
+
+    assert result.exit_code == 0
+    assert runtime.sync_service.calls == [(SECOND_ACTIVE_SEARCH_ID, {"freework"})]
+
+
+def test_sync_saved_searches_rejects_unconfigured_source_before_any_run(
+    runner: CliRunner,
+) -> None:
+    runtime = FakeRuntime(
+        searches=[
+            SimpleNamespace(
+                id=ACTIVE_SEARCH_ID,
+                name="LinkedIn",
+                active=True,
+                sources=["linkedin"],
+            ),
+            SimpleNamespace(
+                id=SECOND_ACTIVE_SEARCH_ID,
+                name="France Travail",
+                active=True,
+                sources=["francetravail"],
+            ),
+        ]
+    )
+
+    result = runner.invoke(
+        main,
+        ["sync-saved-searches", "--source", "freework"],
+        obj={"runtime": runtime},
+    )
+
+    assert result.exit_code == 1
+    assert "Aucune recherche" in result.output
+    assert runtime.sync_service.calls == []
+
+
+def test_sync_saved_searches_rejects_source_missing_from_selected_search(
+    runner: CliRunner,
+) -> None:
+    runtime = FakeRuntime(
+        searches=[
+            SimpleNamespace(
+                id=ACTIVE_SEARCH_ID,
+                name="LinkedIn",
+                active=True,
+                sources=["linkedin"],
+            )
+        ]
+    )
+
+    result = runner.invoke(
+        main,
+        [
+            "sync-saved-searches",
+            "--search-id",
+            ACTIVE_SEARCH_ID,
+            "--source",
+            "freework",
+        ],
+        obj={"runtime": runtime},
+    )
+
+    assert result.exit_code == 1
+    assert "ne fait pas partie" in result.output
+    assert runtime.sync_service.calls == []
+
+
 def test_sync_saved_searches_rejects_unknown_source(
     runner: CliRunner, runtime: FakeRuntime
 ) -> None:
@@ -231,7 +340,10 @@ def test_sync_saved_searches_with_no_active_search_is_actionable_success(
     runtime = FakeRuntime(
         searches=[
             SimpleNamespace(
-                id=INACTIVE_SEARCH_ID, name="Ancienne recherche", active=False
+                id=INACTIVE_SEARCH_ID,
+                name="Ancienne recherche",
+                active=False,
+                sources=["linkedin"],
             )
         ]
     )
@@ -246,13 +358,35 @@ def test_sync_saved_searches_with_no_active_search_is_actionable_success(
 def test_build_runtime_composes_shared_services_once() -> None:
     runtime = build_runtime("sqlite://")
     try:
-        assert runtime.jobs is runtime.sync_service.jobs
-        assert runtime.sync_runs is runtime.sync_service.sync_runs
-        assert runtime.sync_service.registry is runtime.registry
-        assert runtime.detail_service.registry is runtime.registry
-        assert runtime.deduplicator is classify_duplicate
+        with runtime.session_factory() as first_session:
+            first = runtime.services(first_session)
+            assert first.jobs is first.sync_service.jobs
+            assert first.jobs is first.detail_service.jobs
+            assert first.sync_runs is first.sync_service.sync_runs
+            assert first.sync_service.registry is runtime.registry
+            assert first.detail_service.registry is runtime.registry
+            assert first.sync_service.classifier is runtime.classifier
     finally:
         runtime.close()
+
+
+def test_api_runtime_shares_factories_but_not_sessions_between_requests() -> None:
+    app = create_app("sqlite://")
+
+    with TestClient(app):
+        runtime = app.state.runtime
+        assert app.state.session_factory is runtime.session_factory
+        with runtime.session_factory() as first_session:
+            first = runtime.services(first_session)
+            with runtime.session_factory() as second_session:
+                second = runtime.services(second_session)
+
+                assert first_session is not second_session
+                assert first.sync_service.session is first_session
+                assert second.sync_service.session is second_session
+                assert first.jobs is not second.jobs
+                assert first.sync_service.registry is second.sync_service.registry
+                assert first.sync_service.classifier is classify_duplicate
 
 
 def test_runtime_migrates_the_configured_database(tmp_path: Path) -> None:

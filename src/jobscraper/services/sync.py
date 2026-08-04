@@ -1,6 +1,6 @@
 """Resilient, transactionally observable synchronization orchestration."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -27,6 +27,7 @@ from jobscraper.scrapers.base import BaseScraper
 from jobscraper.scrapers.registry import ScraperRegistry
 from jobscraper.services.deduplication import (
     DuplicateDecision,
+    JobLike,
     classify_duplicate,
     ordered_duplicate_pair_ids,
 )
@@ -72,11 +73,19 @@ class SyncService:
         session: Session,
         *,
         registry: ScraperFactory | None = None,
+        jobs: JobRepository | None = None,
+        sync_runs: SyncRunRepository | None = None,
+        classifier: Callable[
+            [JobLike, JobLike], DuplicateDecision
+        ] = classify_duplicate,
     ) -> None:
         self.session = session
         self.registry = registry or ScraperRegistry()
-        self.jobs = JobRepository(session)
-        self.sync_runs = SyncRunRepository(session)
+        self.jobs = jobs if jobs is not None else JobRepository(session)
+        self.sync_runs = (
+            sync_runs if sync_runs is not None else SyncRunRepository(session)
+        )
+        self.classifier = classifier
 
     def create_run(
         self,
@@ -378,7 +387,7 @@ class SyncService:
             ):
                 self._remove_possible_relation(candidate.pk, current.pk)
                 continue
-            decision = classify_duplicate(candidate, current)
+            decision = self.classifier(candidate, current)
             if decision.kind == "confirmed":
                 current = self.jobs.merge_canonical_jobs(candidate.id, current.id)
                 self._remove_source_overlapping_possible_relations(current.pk)
