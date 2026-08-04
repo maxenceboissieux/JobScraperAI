@@ -366,6 +366,7 @@ class SyncService:
             decision = classify_duplicate(candidate, current)
             if decision.kind == "confirmed":
                 current = self.jobs.merge_canonical_jobs(candidate.id, current.id)
+                self._remove_source_overlapping_possible_relations(current.pk)
             elif decision.kind == "possible":
                 self._record_possible_relation(candidate, current, decision)
             else:
@@ -391,6 +392,28 @@ class SyncService:
         )
         if relation is not None:
             self.session.delete(relation)
+
+    def _remove_source_overlapping_possible_relations(self, job_pk: int) -> None:
+        sources = self._job_sources(job_pk)
+        relations = list(
+            self.session.scalars(
+                select(DuplicateRelation).where(
+                    DuplicateRelation.kind == "possible",
+                    or_(
+                        DuplicateRelation.left_job_id == job_pk,
+                        DuplicateRelation.right_job_id == job_pk,
+                    ),
+                )
+            )
+        )
+        for relation in relations:
+            other_pk = (
+                relation.right_job_id
+                if relation.left_job_id == job_pk
+                else relation.left_job_id
+            )
+            if not sources.isdisjoint(self._job_sources(other_pk)):
+                self.session.delete(relation)
 
     def _record_possible_relation(
         self,

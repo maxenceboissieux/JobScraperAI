@@ -610,6 +610,49 @@ def test_cross_source_bridge_never_collapses_two_same_source_vacancies(
         assert left_sources.isdisjoint(right_sources)
 
 
+def test_confirmed_bridge_removes_transferred_possible_same_source_relation(
+    session: Session,
+) -> None:
+    """Fails if a later merge leaves an earlier possible relation source-invalid."""
+    saved_search = SavedSearchRepository(session).create(
+        name="Python",
+        criteria=SearchCriteria(keywords=["python"]),
+        sources=["linkedin", "wttj"],
+    )
+    registry = FakeRegistry(
+        {
+            "linkedin": ScrapeScenario(
+                offers=[
+                    offer(
+                        "li-possible",
+                        source="linkedin",
+                        title="Développeur Python Backend",
+                    ),
+                    offer(
+                        "li-confirmed",
+                        source="linkedin",
+                        title="Développeur Python",
+                    ),
+                ]
+            ),
+            "wttj": ScrapeScenario(
+                offers=[
+                    offer(
+                        "wttj-bridge",
+                        source="wttj",
+                        title="Développeur Python",
+                    )
+                ]
+            ),
+        }
+    )
+
+    SyncService(session, registry=registry).run(saved_search.id)
+
+    assert session.scalar(select(func.count(CanonicalJob.pk))) == 2
+    assert list(session.scalars(select(DuplicateRelation))) == []
+
+
 def test_company_legal_suffix_reaches_duplicate_classifier(session: Session) -> None:
     """Fails if persisted prefilter keys disagree with Task 3 company normalization."""
     saved_search = SavedSearchRepository(session).create(

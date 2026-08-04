@@ -105,6 +105,48 @@ def test_freework_rejects_partially_parsed_page(
         next(iterator)
 
 
+def test_freework_strict_mode_keeps_partial_evidence_across_fallback_extractors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scraper = FreeWorkScraper({"delay": 0, "propagate_search_errors": True})
+    invalid_nuxt = {"representation": "invalid-nuxt"}
+    valid_json_ld = {"representation": "valid-json-ld"}
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: "<html></html>")
+    monkeypatch.setattr(scraper, "_extract_nuxt_jobs", lambda _soup: [invalid_nuxt])
+    monkeypatch.setattr(scraper, "_extract_json_ld_jobs", lambda _soup: [valid_json_ld])
+    monkeypatch.setattr(
+        scraper,
+        "_parse_job_card",
+        lambda candidate: offer("freework") if candidate is valid_json_ld else None,
+    )
+
+    iterator = scraper.search(SearchCriteria(max_results=10))
+    assert next(iterator).id == "freework_1"
+    with pytest.raises(IncompleteSearchError):
+        next(iterator)
+
+
+def test_freework_legacy_mode_keeps_valid_fallback_after_partial_representation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scraper = FreeWorkScraper({"delay": 0})
+    invalid_nuxt = {"representation": "invalid-nuxt"}
+    valid_card = {"representation": "valid-card"}
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: "<html></html>")
+    monkeypatch.setattr(scraper, "_extract_nuxt_jobs", lambda _soup: [invalid_nuxt])
+    monkeypatch.setattr(scraper, "_extract_json_ld_jobs", lambda _soup: [])
+    monkeypatch.setattr(scraper, "_extract_job_cards", lambda _soup: [valid_card])
+    monkeypatch.setattr(
+        scraper,
+        "_parse_job_card",
+        lambda candidate: offer("freework") if candidate is valid_card else None,
+    )
+
+    jobs = list(scraper.search(SearchCriteria(max_results=10)))
+
+    assert [job.id for job in jobs] == ["freework_1"]
+
+
 @pytest.mark.parametrize(
     ("scraper", "payload"),
     [

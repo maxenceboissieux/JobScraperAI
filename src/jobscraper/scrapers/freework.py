@@ -77,7 +77,9 @@ class FreeWorkScraper(BaseScraper):
                     for candidate in candidates
                     if (job := self._parse_job_card(candidate)) is not None
                 ]
-                partial_parse = bool(candidates) and len(page_jobs) != len(candidates)
+                partial_parse = partial_parse or (
+                    bool(candidates) and len(page_jobs) != len(candidates)
+                )
                 if page_jobs:
                     break
             if not page_jobs:
