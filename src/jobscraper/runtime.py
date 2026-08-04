@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -46,12 +45,13 @@ def _scraper_registry_from_environment() -> ScraperRegistry:
         raise RuntimeError("Le mode fake est interdit dans l’environnement production.")
 
     try:
-        fixture_module = importlib.import_module("tests.e2e.fake_scrapers")
-        registry = fixture_module.build_fake_registry()
+        from jobscraper.testing.fake_scrapers import build_fake_registry
+
+        registry = build_fake_registry()
     except Exception as exc:
         raise RuntimeError(
-            "Le registry fake E2E est indisponible; lancez la commande depuis "
-            "la racine du projet."
+            "Le registry fake E2E est indisponible; vérifiez "
+            "JOBSCRAPER_FAKE_NOW et JOBSCRAPER_FAKE_DETAIL_LOG."
         ) from exc
     if not isinstance(registry, ScraperRegistry):
         raise RuntimeError("Le registry fake E2E est invalide.")

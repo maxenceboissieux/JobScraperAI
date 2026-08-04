@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -368,6 +371,41 @@ def test_build_runtime_composes_shared_services_once() -> None:
             assert first.sync_service.classifier is runtime.classifier
     finally:
         runtime.close()
+
+
+def test_fake_registry_is_importable_from_an_editable_install_outside_repo(
+    tmp_path: Path,
+) -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "JOBSCRAPER_ENV": "test",
+            "JOBSCRAPER_SCRAPER_MODE": "fake",
+            "JOBSCRAPER_FAKE_NOW": "2026-08-04T12:00:00+00:00",
+            "JOBSCRAPER_FAKE_DETAIL_LOG": str(tmp_path / "details.log"),
+        }
+    )
+    env.pop("PYTHONPATH", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from jobscraper.runtime import build_runtime; "
+                "runtime = build_runtime('sqlite://'); "
+                "print(type(runtime.registry).__module__); runtime.close()"
+            ),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "jobscraper.testing.fake_scrapers"
 
 
 def test_api_runtime_shares_factories_but_not_sessions_between_requests() -> None:

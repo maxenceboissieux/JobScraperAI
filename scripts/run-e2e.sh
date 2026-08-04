@@ -16,6 +16,9 @@ cleanup() {
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   rm -rf "$E2E_TEMP_DIR"
+  if [ "$cleanup_status" -ne 0 ]; then
+    echo "Artefacts Playwright conservés dans $JOBSCRAPER_E2E_ARTIFACTS" >&2
+  fi
   exit "$cleanup_status"
 }
 
@@ -47,7 +50,7 @@ trap 'exit 130' 2
 trap 'exit 143' 15
 
 JOBSCRAPER_DATABASE_URL="sqlite:///$E2E_TEMP_DIR/jobscraper.db"
-JOBSCRAPER_E2E_ARTIFACTS="$E2E_TEMP_DIR/playwright-artifacts"
+JOBSCRAPER_E2E_ARTIFACTS="$PROJECT_ROOT/.artifacts/playwright"
 JOBSCRAPER_FAKE_DETAIL_LOG="$E2E_TEMP_DIR/detail-calls.log"
 JOBSCRAPER_FAKE_NOW=$(
   "$PYTHON" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).replace(microsecond=0).isoformat())'
@@ -63,6 +66,8 @@ export JOBSCRAPER_DATABASE_URL JOBSCRAPER_E2E_ARTIFACTS
 export JOBSCRAPER_FAKE_DETAIL_LOG JOBSCRAPER_FAKE_NOW
 export JOBSCRAPER_ENV JOBSCRAPER_SCRAPER_MODE
 export HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY PYTHONPATH
+
+mkdir -p "$JOBSCRAPER_E2E_ARTIFACTS"
 
 cd "$FRONTEND_DIR"
 pnpm build
