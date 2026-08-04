@@ -131,12 +131,42 @@
   font-size: 1.08rem;
 }
 
-.job-drawer__description p {
-  margin-bottom: 15px;
+.job-description__blocks {
+  border-left: 3px solid var(--brand);
+  padding-left: 16px;
+}
+
+.job-description__blocks h4 {
+  margin: 24px 0 9px;
+  color: var(--brand-dark);
+  font-size: 0.86rem;
+  letter-spacing: 0.025em;
+  line-height: 1.35;
+}
+
+.job-description__blocks h4:first-child,
+.job-description__blocks > :first-child {
+  margin-top: 0;
+}
+
+.job-description__blocks p,
+.job-description__blocks li {
   color: #314148;
   font-size: 0.94rem;
-  line-height: 1.68;
-  white-space: pre-line;
+  line-height: 1.7;
+}
+
+.job-description__blocks p {
+  margin: 0 0 15px;
+}
+
+.job-description__blocks ul {
+  margin: 0 0 17px;
+  padding-left: 20px;
+}
+
+.job-description__blocks li + li {
+  margin-top: 7px;
 }
 
 .job-drawer__chips {
@@ -261,6 +291,14 @@
   .job-drawer__error,
   .job-drawer__skeleton {
     padding-inline: 20px;
+  }
+
+  .job-description__blocks {
+    padding-left: 12px;
+  }
+
+  .job-description__blocks h4 {
+    margin-top: 20px;
   }
 }
 

@@ -10,6 +10,7 @@ import {
   formatSalary,
   formatWorkplace,
 } from "../../formatters";
+import { JobDescription } from "./JobDescription";
 import { PossibleDuplicates } from "./PossibleDuplicates";
 import { SourceLinks } from "./SourceLinks";
 
@@ -195,18 +196,7 @@ export function JobDetailsDrawer({ jobId, onClose, onSelectJob }: JobDetailsDraw
             ) : null}
             <JobMetadata job={detailsQuery.data} />
             {detailsQuery.data.description?.trim() ? (
-              <section
-                className="job-drawer__description"
-                aria-labelledby="job-description-title"
-              >
-                <h3 id="job-description-title">Description</h3>
-                {detailsQuery.data.description
-                  .split(/\r?\n\s*\r?\n/)
-                  .filter((paragraph) => paragraph.trim())
-                  .map((paragraph, index) => (
-                    <p key={index}>{paragraph}</p>
-                  ))}
-              </section>
+              <JobDescription description={detailsQuery.data.description} />
             ) : null}
             <DetailChips
               id="job-skills-title"

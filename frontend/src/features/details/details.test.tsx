@@ -186,6 +186,37 @@ describe("détails d’une offre", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("rend la description structurée sans modifier le titre ni la restauration du focus", async () => {
+    const { user } = renderAppWithJobs([JOB], {
+      details: {
+        ...DETAILS_WITH_DUPLICATE,
+        description: "Description du poste\nMISSIONS\n- Concevoir\n- Tester",
+      },
+    });
+    const trigger = await screen.findByRole("button", {
+      name: "Voir l’offre Développeur Python",
+    });
+
+    await user.click(trigger);
+
+    const description = await screen.findByRole("region", { name: "Description" });
+    expect(within(description).getByRole("heading", {
+      name: "Description du poste",
+      level: 4,
+    })).toBeVisible();
+    expect(within(description).getAllByRole("listitem")).toHaveLength(2);
+    const content = description.closest(".job-drawer__content");
+    expect(content).not.toBeNull();
+    expect(within(content as HTMLElement).getByRole("heading", {
+      name: "Développeur Python",
+      level: 2,
+    })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Fermer les détails" }));
+
+    expect(trigger).toHaveFocus();
+  });
+
   it("restaure le focus avec Back puis rouvre la même offre avec Forward", async () => {
     const { user } = renderAppWithJobs([JOB], {
       details: DETAILS_WITH_DUPLICATE,
