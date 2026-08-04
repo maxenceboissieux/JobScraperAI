@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -10,6 +11,12 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
+from jobscraper.automation.launchd import (
+    AutomationError,
+    get_launch_agent_status,
+    install_launch_agent,
+    uninstall_launch_agent,
+)
 from jobscraper.config import get_config
 from jobscraper.models.job import (
     ContractType,
@@ -56,6 +63,60 @@ def main(ctx: click.Context, verbose: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     setup_logging(verbose)
+
+
+@main.group()
+def automation() -> None:
+    """Gère la synchronisation quotidienne avec launchd sur macOS."""
+
+
+@automation.command("install")
+@click.option("--hour", type=click.IntRange(0, 23), default=8, show_default=True)
+@click.option("--minute", type=click.IntRange(0, 59), default=0, show_default=True)
+def automation_install(hour: int, minute: int) -> None:
+    """Installe ou met à jour l’automatisation quotidienne."""
+
+    try:
+        install_launch_agent(Path.cwd(), Path(sys.executable), hour=hour, minute=minute)
+    except (AutomationError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Automatisation quotidienne installée à {hour:02d}:{minute:02d}.")
+
+
+@automation.command("status")
+def automation_status() -> None:
+    """Affiche l’état de l’automatisation quotidienne."""
+
+    try:
+        status = get_launch_agent_status()
+    except AutomationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    schedule = (
+        f" Planification : {status.schedule[0]:02d}:{status.schedule[1]:02d}."
+        if status.schedule is not None
+        else ""
+    )
+    if status.loaded:
+        state = f" (état launchd : {status.state})" if status.state else ""
+        click.echo(f"Automatisation active{state}.{schedule}")
+    elif status.plist_exists:
+        click.echo(f"Automatisation installée mais inactive.{schedule}")
+    else:
+        click.echo("Automatisation non installée.")
+
+
+@automation.command("uninstall")
+def automation_uninstall() -> None:
+    """Désactive puis supprime l’automatisation quotidienne."""
+
+    try:
+        removed = uninstall_launch_agent()
+    except AutomationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if removed:
+        click.echo("Automatisation désinstallée.")
+    else:
+        click.echo("Automatisation déjà absente.")
 
 
 @main.command()

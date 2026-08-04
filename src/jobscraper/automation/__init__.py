@@ -1,0 +1,1 @@
+"""Automatisation locale de JobScraper."""
