@@ -271,11 +271,12 @@ class SyncService:
             return "partial"
 
         try:
-            self._mark_unseen_inactive(
-                saved_search_pk=saved_search_pk,
-                source=source,
-                scan_started_at=source_started,
-            )
+            if scraper is not None and scraper.can_deactivate_unseen:
+                self._mark_unseen_inactive(
+                    saved_search_pk=saved_search_pk,
+                    source=source,
+                    scan_started_at=source_started,
+                )
             self._record_source_finished(
                 run_id=run_id,
                 source=source,

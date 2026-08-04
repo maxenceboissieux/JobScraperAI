@@ -26,6 +26,7 @@ class LinkedInScraper(BaseScraper):
 
     name = "linkedin"
     base_url = "https://www.linkedin.com"
+    can_deactivate_unseen = False
 
     # Mapping des niveaux d'expérience LinkedIn
     EXPERIENCE_MAPPING = {

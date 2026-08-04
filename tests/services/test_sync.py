@@ -462,6 +462,42 @@ def test_only_complete_scan_inactivates_unseen_listings(session: Session) -> Non
     assert stale.active is False
 
 
+def test_complete_linkedin_scan_never_inactivates_unseen_listings(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if LinkedIn's non-authoritative result window expires cached offers."""
+    saved_search = SavedSearchRepository(session).create(
+        name="Python",
+        criteria=SearchCriteria(keywords=["python"]),
+        sources=["linkedin"],
+    )
+    jobs = JobRepository(session)
+    prior = jobs.upsert_listing(offer("linkedin_prior", source="linkedin"), seen_at=NOW)
+    jobs.attach_search(saved_search.id, prior.id)
+    prior_listing = jobs.get_listing(prior.id)
+    assert prior_listing is not None
+    session.commit()
+
+    def complete_search(
+        scraper: LinkedInScraper, criteria: SearchCriteria
+    ) -> Iterator[JobOffer]:
+        del criteria
+        scraper._begin_search()
+        scraper._mark_search_complete()
+        yield offer("linkedin_current", source="linkedin")
+
+    monkeypatch.setattr(LinkedInScraper, "search", complete_search)
+
+    run_id = SyncService(session, registry=ScraperRegistry(Config())).run(
+        saved_search.id
+    )
+
+    session.refresh(prior_listing)
+    result = source_results(session, run_id)["linkedin"]
+    assert result.status == "succeeded"
+    assert prior_listing.active is True
+
+
 def test_real_adapter_operational_error_cannot_masquerade_as_complete(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

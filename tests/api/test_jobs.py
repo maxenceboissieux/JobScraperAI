@@ -11,6 +11,7 @@ from jobscraper.db.models import DuplicateRelation, SourceListing
 from jobscraper.models.job import JobOffer, SearchCriteria
 from jobscraper.repositories.jobs import JobRepository
 from jobscraper.repositories.saved_searches import SavedSearchRepository
+from jobscraper.scrapers.linkedin import LinkedInScraper
 
 
 def offer(
@@ -252,3 +253,32 @@ def test_unknown_and_uncached_source_less_details_have_distinct_http_errors(
     assert unavailable.json() == {
         "detail": "Les détails de cette offre sont indisponibles : aucune source active."
     }
+
+
+def test_inactive_linkedin_only_job_refreshes_details_through_the_api(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if the API returns 503 for a readable historical LinkedIn offer."""
+    job = JobRepository(session).upsert_listing(
+        offer("linkedin_4444457297", source="linkedin"), seen_at=utc_now()
+    )
+    listing = JobRepository(session).get_listing(job.id)
+    assert listing is not None
+    listing.active = False
+    session.commit()
+
+    def details(_scraper: LinkedInScraper, job_id: str) -> JobOffer:
+        assert job_id == "4444457297"
+        return offer(
+            "linkedin_4444457297",
+            source="linkedin",
+            title="Détail LinkedIn historique",
+        )
+
+    monkeypatch.setattr(LinkedInScraper, "get_job_details", details)
+
+    response = client.get(f"/api/jobs/{job.id}")
+
+    assert response.status_code == 200
+    assert response.json()["cacheState"] == "refreshed"
+    assert response.json()["description"] == "Description Détail LinkedIn historique"

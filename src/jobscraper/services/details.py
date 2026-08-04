@@ -144,13 +144,28 @@ class JobDetailsService:
                 )
             )
         )
-        return next(
+        active_listing = next(
             (
                 listing
                 for listing in listings
                 if listing.source in self._DETAIL_PARSER_SOURCES
             ),
             listings[0] if listings else None,
+        )
+        if active_listing is not None:
+            return active_listing
+        return self.session.scalar(
+            select(SourceListing)
+            .where(
+                SourceListing.canonical_job_id == job_pk,
+                SourceListing.source == "linkedin",
+                SourceListing.active.is_(False),
+            )
+            .order_by(
+                SourceListing.last_seen_at.desc(),
+                SourceListing.pk.desc(),
+            )
+            .limit(1)
         )
 
     def _fetch_details(self, listing: SourceListing) -> JobOffer | None:

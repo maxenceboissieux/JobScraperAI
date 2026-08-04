@@ -24,6 +24,9 @@ class BaseScraper(ABC):
     # URL de base du site
     base_url: str = ""
 
+    # Whether a completed scan proves unseen listings disappeared upstream.
+    can_deactivate_unseen: bool = True
+
     def __init__(self, config: Optional[Dict] = None):
         """
         Initialise le scraper.

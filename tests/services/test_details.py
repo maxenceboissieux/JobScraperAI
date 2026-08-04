@@ -265,6 +265,105 @@ def test_linkedin_persisted_identifier_builds_real_numeric_detail_url(
     assert observed_urls == ["https://www.linkedin.com/jobs/view/10001"]
 
 
+def test_get_refreshes_from_latest_inactive_linkedin_when_no_source_is_active(
+    session: Session,
+) -> None:
+    """Fails if a still-readable historical LinkedIn permalink is discarded."""
+    job = JobRepository(session).upsert_listing(
+        listing_offer("linkedin_4444457297", source="linkedin"), seen_at=NOW
+    )
+    listing = JobRepository(session).get_listing(job.id)
+    assert listing is not None
+    listing.active = False
+    session.flush()
+    service, registry = service_for(
+        session,
+        Clock(),
+        {
+            "linkedin": DetailScenario(
+                result=listing_offer(
+                    "linkedin_4444457297",
+                    source="linkedin",
+                    description="Détail LinkedIn conservé",
+                )
+            )
+        },
+    )
+
+    result = service.get(job.id)
+
+    assert result.cache_state == "refreshed"
+    assert result.job.description == "Détail LinkedIn conservé"
+    assert registry.created == ["linkedin"]
+    assert registry.instances[0].detail_identifiers == ["4444457297"]
+
+
+def test_get_prefers_active_supported_listing_over_inactive_linkedin(
+    session: Session,
+) -> None:
+    """Fails if the historical fallback displaces a currently active source."""
+    jobs = JobRepository(session)
+    job = jobs.upsert_listing(listing_offer(), seen_at=NOW - timedelta(days=1))
+    session.add(
+        SourceListing(
+            canonical_job_id=job.pk,
+            source="linkedin",
+            external_id="linkedin_4444457297",
+            url="https://www.linkedin.com/jobs/view/4444457297",
+            title=job.title,
+            company=job.company,
+            location=job.location,
+            active=False,
+            first_seen_at=NOW,
+            last_seen_at=NOW,
+        )
+    )
+    session.flush()
+    service, registry = service_for(
+        session,
+        Clock(),
+        {
+            "freework": DetailScenario(
+                result=listing_offer(description="Détail actif Free-Work")
+            ),
+            "linkedin": DetailScenario(
+                result=listing_offer(
+                    source="linkedin", description="Détail LinkedIn inactif"
+                )
+            ),
+        },
+    )
+
+    result = service.get(job.id)
+
+    assert result.job.description == "Détail actif Free-Work"
+    assert registry.created == ["freework"]
+
+
+@pytest.mark.parametrize("source", ["freework", "hellowork"])
+def test_get_never_falls_back_to_other_inactive_sources(
+    session: Session, source: str
+) -> None:
+    """Fails if the narrow LinkedIn fallback silently widens to other adapters."""
+    job = JobRepository(session).upsert_listing(
+        listing_offer(f"{source}_42", source=source), seen_at=NOW
+    )
+    listing = JobRepository(session).get_listing(job.id)
+    assert listing is not None
+    listing.active = False
+    session.flush()
+    service, registry = service_for(
+        session,
+        Clock(),
+        {source: DetailScenario(result=listing_offer(source=source))},
+    )
+
+    with pytest.raises(JobDetailsUnavailableError, match="source active"):
+        service.get(job.id)
+
+    assert registry.created == []
+
+
 def test_get_falls_back_to_newest_active_listing_when_none_has_a_parser(
     session: Session,
 ) -> None:
