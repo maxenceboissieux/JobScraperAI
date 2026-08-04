@@ -245,7 +245,7 @@ git commit -m "feat: display responsive job-card grid"
 - Consumes: `api.getJob(id)` returning `cacheState`, `updatedAt`, `warning`, source links and possible duplicates.
 - Produces: route query `job=<uuid>`, right drawer on desktop, full-screen sheet below 768 px, focus trap and return-to-card behavior.
 
-- [ ] **Step 1: Write failing cached-detail flow**
+- [x] **Step 1: Write failing cached-detail flow**
 
 ```tsx
 it("ouvre les détails et suit un doublon possible", async () => {
@@ -258,19 +258,19 @@ it("ouvre les détails et suit un doublon possible", async () => {
 })
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `cd frontend && pnpm test src/features/details/details.test.tsx`
 
-- [ ] **Step 3: Implement drawer states and source links**
+- [x] **Step 3: Implement drawer states and source links**
 
 Render skeleton while the API loads cached/fresh details, a non-blocking warning for stale fallback, sanitized plain-text description formatting, skills/benefits chips, and one external link per source with `target="_blank" rel="noreferrer"`.
 
-- [ ] **Step 4: Verify keyboard and mobile behavior**
+- [x] **Step 4: Verify keyboard and mobile behavior**
 
 Test Escape, close button, focus restoration, missing description, stale warning and possible-duplicate navigation. Run: `cd frontend && pnpm test src/features/details/details.test.tsx && pnpm typecheck`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src
