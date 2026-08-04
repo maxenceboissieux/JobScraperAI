@@ -10,8 +10,9 @@ from threading import Lock
 from typing import AsyncIterator
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from sqlalchemy.engine import make_url
 
@@ -22,6 +23,7 @@ from jobscraper.db.base import Base
 from jobscraper.db.session import create_engine_and_session
 
 DEFAULT_DATABASE_URL = "sqlite:///./data/jobscraper.db"
+DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
 
 def _upgrade(database_url: str) -> None:
@@ -46,7 +48,9 @@ def _ensure_sqlite_parent(database_url: str) -> None:
     Path(url.database).expanduser().parent.mkdir(parents=True, exist_ok=True)
 
 
-def create_app(database_url: str | None = None) -> FastAPI:
+def create_app(
+    database_url: str | None = None, frontend_dist: str | Path | None = None
+) -> FastAPI:
     """Build the local aggregation API with an app-owned database/executor."""
 
     resolved_database_url = (
@@ -79,6 +83,36 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(searches.router)
     app.include_router(jobs.router)
     app.include_router(syncs.router)
+
+    resolved_frontend_dist = Path(frontend_dist or DEFAULT_FRONTEND_DIST).resolve()
+    frontend_assets = resolved_frontend_dist / "assets"
+    frontend_index = resolved_frontend_dist / "index.html"
+    if frontend_assets.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=frontend_assets),
+            name="frontend-assets",
+        )
+
+    @app.api_route(
+        "/{client_path:path}", methods=["GET", "HEAD"], include_in_schema=False
+    )
+    async def frontend(client_path: str) -> Response:
+        if client_path == "api" or client_path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        if client_path == "assets" or client_path.startswith("assets/"):
+            raise HTTPException(status_code=404)
+        if frontend_index.is_file():
+            return FileResponse(frontend_index)
+        return HTMLResponse(
+            status_code=503,
+            content=(
+                "<h1>Interface web indisponible</h1>"
+                "<p>Depuis le dossier <code>frontend</code>, lancez "
+                "<code>pnpm install</code> puis <code>pnpm build</code>, "
+                "et redémarrez l’API.</p>"
+            ),
+        )
 
     @app.exception_handler(Exception)
     async def internal_error(_request: Request, exc: Exception) -> JSONResponse:

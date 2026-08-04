@@ -9,6 +9,7 @@ Agrégateur d'offres d'emploi en France. Recherchez simultanément sur LinkedIn,
 - **Filtres avancés** : Type de contrat, expérience, télétravail, date de publication
 - **Export flexible** : JSON, CSV ou affichage tableau
 - **CLI intuitive** : Interface en ligne de commande avec Rich
+- **Interface web locale** : Application React servie par l'API FastAPI
 
 ## Installation
 
@@ -55,6 +56,28 @@ FREEWORK_DELAY=2.0
 Conservez un délai raisonnable pour les recherches habituelles afin de respecter le site source.
 
 ## Utilisation
+
+### Interface web locale
+
+L'interface nécessite Node.js 20.19 ou une version compatible plus récente et
+pnpm. Depuis la racine du dépôt, construisez-la puis démarrez l'API :
+
+```bash
+cd frontend
+pnpm install
+pnpm build
+cd ..
+.venv/bin/jobscraper-api
+```
+
+Ouvrez ensuite <http://127.0.0.1:8000>. Les routes de l'API restent disponibles
+sous `/api`. Si le build manque, la racine affiche les commandes à exécuter sans
+empêcher l'API de démarrer.
+
+Le dossier `frontend/dist` est un artefact local ignoré par Git et n'est pas
+inclus dans le paquet Python. L'interface doit donc être construite dans le dépôt
+avant de lancer `jobscraper-api` ; une installation wheel seule ne fournit pas
+l'interface React.
 
 ### Recherche simple
 
