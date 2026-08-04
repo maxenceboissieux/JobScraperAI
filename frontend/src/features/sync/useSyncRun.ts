@@ -84,16 +84,15 @@ export function useSyncRun() {
       return;
     }
     const previous = observedRun.current;
-    if (previous?.id === run.id) {
-      invalidateCompletedSources(
-        run,
-        run.sources.filter(
-          (source) =>
-            source.status === "succeeded" &&
-            previous.sourceStatuses.get(source.source) !== "succeeded",
-        ),
-      );
-    }
+    invalidateCompletedSources(
+      run,
+      run.sources.filter(
+        (source) =>
+          source.status === "succeeded" &&
+          (previous?.id !== run.id ||
+            previous.sourceStatuses.get(source.source) !== "succeeded"),
+      ),
+    );
     observedRun.current = {
       id: run.id,
       sourceStatuses: new Map(run.sources.map((source) => [source.source, source.status])),

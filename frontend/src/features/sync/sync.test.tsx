@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -30,6 +30,12 @@ const SAVED_SEARCH: SavedSearch = {
   active: true,
   createdAt: "2026-08-03T08:00:00Z",
   updatedAt: "2026-08-03T09:00:00Z",
+};
+
+const OTHER_SAVED_SEARCH: SavedSearch = {
+  ...SAVED_SEARCH,
+  id: "search-data",
+  name: "Data France",
 };
 
 const JOB: JobCard = {
@@ -93,8 +99,11 @@ const RUNNING_SYNC: SyncRun = {
   ],
 };
 
-function renderAppWithSync(latestSync: SyncRun | null) {
-  window.history.replaceState({}, "", "/?search=search-python");
+function renderAppWithSync(
+  latestSync: SyncRun | null,
+  options: { initialUrl?: string; searches?: SavedSearch[] } = {},
+) {
+  window.history.replaceState({}, "", options.initialUrl ?? "/?search=search-python");
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0 },
@@ -102,7 +111,9 @@ function renderAppWithSync(latestSync: SyncRun | null) {
     },
   });
   server.use(
-    http.get(`${origin}/api/searches`, () => HttpResponse.json([SAVED_SEARCH])),
+    http.get(`${origin}/api/searches`, () =>
+      HttpResponse.json(options.searches ?? [SAVED_SEARCH]),
+    ),
     http.get(`${origin}/api/jobs`, ({ request }) => {
       const url = new URL(request.url);
       return HttpResponse.json({
@@ -133,6 +144,18 @@ afterEach(() => {
 function SyncRunStatus() {
   const syncRun = useSyncRun();
   return <output>{syncRun.run?.status ?? "none"}</output>;
+}
+
+function JobQueryObserver({ onFetch }: { onFetch: () => void }) {
+  useQuery({
+    queryKey: ["jobs", "existing"],
+    queryFn: () => {
+      onFetch();
+      return { items: [], total: 0, limit: 24, offset: 0 };
+    },
+    staleTime: Infinity,
+  });
+  return null;
 }
 
 describe("synchronisation manuelle", () => {
@@ -184,6 +207,70 @@ describe("synchronisation manuelle", () => {
     await waitFor(() => expect(starts).toEqual([SAVED_SEARCH.id]));
     expect(await screen.findByText("Free-Work : en cours")).toBeVisible();
     expect(refresh).toBeDisabled();
+  });
+
+  it("verrouille seulement la recherche déjà synchronisée", async () => {
+    const starts: string[] = [];
+    server.use(
+      http.post(`${origin}/api/syncs`, async ({ request }) => {
+        starts.push(String((await request.json() as { savedSearchId: string }).savedSearchId));
+        return HttpResponse.json(RUNNING_SYNC, { status: 202 });
+      }),
+    );
+    const runningOtherSearch: SyncRun = {
+      ...RUNNING_SYNC,
+      savedSearchId: SAVED_SEARCH.id,
+    };
+    const first = renderAppWithSync(runningOtherSearch, {
+      initialUrl: `/?search=${OTHER_SAVED_SEARCH.id}`,
+      searches: [SAVED_SEARCH, OTHER_SAVED_SEARCH],
+    });
+
+    const refreshForOtherSearch = await screen.findByRole("button", {
+      name: "Actualiser",
+    });
+    await waitFor(() => expect(refreshForOtherSearch).toBeEnabled());
+    await first.user.click(refreshForOtherSearch);
+    await waitFor(() => expect(starts).toEqual([OTHER_SAVED_SEARCH.id]));
+    first.unmount();
+
+    renderAppWithSync(runningOtherSearch);
+    expect(await screen.findByRole("button", { name: "Actualiser" })).toBeDisabled();
+  });
+
+  it("invalide une fois les offres au premier succès observé", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    queryClient.setQueryData(["jobs", "existing"], {
+      items: [],
+      total: 0,
+      limit: 24,
+      offset: 0,
+    });
+    const getLatestSync = vi.spyOn(api, "getLatestSync").mockResolvedValue(PARTIAL_SYNC);
+    let jobFetches = 0;
+    const rendered = render(
+      <QueryClientProvider client={queryClient}>
+        <SyncRunStatus />
+        <JobQueryObserver onFetch={() => { jobFetches += 1; }} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("partial");
+    });
+    await waitFor(() => expect(jobFetches).toBe(1));
+    rendered.rerender(
+      <QueryClientProvider client={queryClient}>
+        <SyncRunStatus />
+        <JobQueryObserver onFetch={() => { jobFetches += 1; }} />
+      </QueryClientProvider>,
+    );
+    queryClient.setQueryData(["sync", "latest"], { ...PARTIAL_SYNC });
+    await waitFor(() => expect(getLatestSync).toHaveBeenCalledTimes(1));
+    expect(jobFetches).toBe(1);
+    rendered.unmount();
   });
 
   it("poll toutes les cinq secondes pendant une synchronisation active puis s’arrête", async () => {

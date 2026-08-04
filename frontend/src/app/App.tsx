@@ -288,7 +288,10 @@ export function App() {
   const refreshAction = (
     <RefreshButton
       hasSelectedSearch={selectedSearch !== null}
-      isStarting={syncRun.isStarting || syncRun.isActive}
+      isStarting={
+        syncRun.isStarting ||
+        (syncRun.isActive && syncRun.run?.savedSearchId === selectedSearch?.id)
+      }
       onRefresh={() => {
         if (selectedSearch !== null) {
           void syncRun.startSync(selectedSearch.id).catch(() => undefined);
