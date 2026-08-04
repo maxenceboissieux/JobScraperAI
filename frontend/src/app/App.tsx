@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { api, ApiError } from "../api/client";
 import type { SavedSearch, SearchCreate, SearchUpdate } from "../api/types";
 import { AppHeader } from "../components/AppHeader";
+import { JobDetailsDrawer } from "../features/details/JobDetailsDrawer";
 import { JobFilters } from "../features/jobs/JobFilters";
 import { JobGrid } from "../features/jobs/JobGrid";
 import { PeriodTabs } from "../features/jobs/PeriodTabs";
 import { useJobFilters } from "../features/jobs/useJobFilters";
 import { SearchEditor } from "../features/searches/SearchEditor";
 import { SearchSelector } from "../features/searches/SearchSelector";
+import "../styles/drawer.css";
 
 const SEARCHES_QUERY_KEY = ["searches"] as const;
 
@@ -64,6 +66,8 @@ export function App() {
   const [editor, setEditor] = useState<EditorSession>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const selectedJobId = searchParams.get("job");
+  const selectedJobTrigger = useRef<HTMLElement | null>(null);
 
   const searchesQuery = useQuery({
     queryKey: SEARCHES_QUERY_KEY,
@@ -92,9 +96,26 @@ export function App() {
   }
 
   function selectJob(jobId: string) {
+    if (
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.matches(".job-card__button")
+    ) {
+      selectedJobTrigger.current = document.activeElement;
+    }
     const next = new URLSearchParams(searchParams);
     next.set("job", jobId);
     setSearchParams(next);
+  }
+
+  function closeJob() {
+    const next = new URLSearchParams(searchParams);
+    next.delete("job");
+    const trigger = selectedJobTrigger.current;
+    setSearchParams(next);
+    if (trigger?.isConnected) {
+      trigger.focus();
+    }
+    selectedJobTrigger.current = null;
   }
 
   useEffect(() => {
@@ -348,6 +369,14 @@ export function App() {
           submitError={submitError}
           onSubmit={submitEditor}
           onClose={() => setEditor(null)}
+        />
+      ) : null}
+
+      {selectedJobId !== null ? (
+        <JobDetailsDrawer
+          jobId={selectedJobId}
+          onClose={closeJob}
+          onSelectJob={selectJob}
         />
       ) : null}
     </div>
