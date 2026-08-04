@@ -73,10 +73,21 @@ async function errorDetail(response: Response): Promise<unknown> {
   return text.trim() || `Erreur HTTP ${response.status}.`;
 }
 
+function request<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { allowNull?: false },
+): Promise<T>;
+function request<T>(
+  path: string,
+  init: RequestInit,
+  options: { allowNull: true },
+): Promise<T | null>;
 async function request<T>(
   path: string,
   init: RequestInit = {},
-): Promise<T> {
+  options: { allowNull?: boolean } = {},
+): Promise<T | null> {
   let response: Response;
   try {
     response = await fetch(apiUrl(path), {
@@ -98,20 +109,34 @@ async function request<T>(
     throw new ApiError(response.status, await errorDetail(response));
   }
   if (response.status === 204) {
-    return null as T;
+    if (options.allowNull) {
+      return null;
+    }
+    throw new ApiError(response.status, "La réponse du serveur est vide.");
   }
 
   const text = await response.text();
   if (!text.trim()) {
-    return null as T;
+    if (options.allowNull) {
+      return null;
+    }
+    throw new ApiError(response.status, "La réponse du serveur est vide.");
   }
+  let body: unknown;
   try {
-    return JSON.parse(text) as T;
+    body = JSON.parse(text);
   } catch (error) {
     throw new ApiError(response.status, "La réponse du serveur est invalide.", {
       cause: error,
     });
   }
+  if (body === null) {
+    if (options.allowNull) {
+      return null;
+    }
+    throw new ApiError(response.status, "La réponse du serveur est vide.");
+  }
+  return body as T;
 }
 
 function appendValue(
@@ -183,7 +208,7 @@ export const api = {
     });
   },
 
-  getJobs(filters: JobFilters = {}, signal?: AbortSignal): Promise<JobsPage> {
+  getJobs(filters: JobFilters, signal?: AbortSignal): Promise<JobsPage> {
     return request(`/api/jobs${jobsQuery(filters)}`, { signal });
   },
 
@@ -212,6 +237,6 @@ export const api = {
   },
 
   getLatestSync(signal?: AbortSignal): Promise<SyncRun | null> {
-    return request("/api/syncs/latest", { signal });
+    return request<SyncRun>("/api/syncs/latest", { signal }, { allowNull: true });
   },
 };

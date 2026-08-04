@@ -134,7 +134,7 @@ export type JobsPage = {
 
 export type JobFilters = {
   savedSearchId?: string;
-  period?: "24h" | "3d" | "7d" | "all";
+  period: "24h" | "3d" | "7d" | "all";
   query?: string;
   locations?: string[];
   contracts?: string[];
@@ -146,8 +146,8 @@ export type JobFilters = {
   skills?: string[];
   duplicateState?: DuplicateState;
   sort?: "date" | "relevance";
-  limit?: number;
-  offset?: number;
+  limit: number;
+  offset: number;
 };
 
 export type StartSyncRequest = {

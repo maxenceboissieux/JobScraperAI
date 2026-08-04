@@ -134,7 +134,7 @@ describe("api", () => {
   });
 
   it("encode les filtres d’offres avec les noms et répétitions FastAPI", async () => {
-    const page: JobsPage = { items: [], total: 0, limit: 0, offset: 0 };
+    const page: JobsPage = { items: [], total: 0, limit: 24, offset: 0 };
     server.use(
       http.get(`${origin}/api/jobs`, ({ request }) => {
         const params = new URL(request.url).searchParams;
@@ -151,7 +151,7 @@ describe("api", () => {
         expect(params.getAll("skill")).toEqual(["C++", "Node.js"]);
         expect(params.get("duplicateState")).toBe("possible");
         expect(params.get("sort")).toBe("relevance");
-        expect(params.get("limit")).toBe("0");
+        expect(params.get("limit")).toBe("24");
         expect(params.get("offset")).toBe("0");
         expect([...params.keys()]).not.toContain("locations");
         expect([...params.keys()]).not.toContain("sources");
@@ -174,7 +174,7 @@ describe("api", () => {
         skills: ["C++", "Node.js"],
         duplicateState: "possible",
         sort: "relevance",
-        limit: 0,
+        limit: 24,
         offset: 0,
       }),
     ).resolves.toEqual(page);
@@ -240,6 +240,55 @@ describe("api", () => {
     server.use(http.get(`${origin}/api/syncs/latest`, () => response));
 
     await expect(api.getLatestSync()).resolves.toBeNull();
+  });
+
+  it("rejette un statut 204 sur un endpoint à réponse obligatoire", async () => {
+    server.use(
+      http.get(
+        `${origin}/api/jobs/job-1`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+
+    await expect(api.getJob("job-1")).rejects.toMatchObject({
+      status: 204,
+      detail: "La réponse du serveur est vide.",
+    });
+  });
+
+  it("rejette un corps vide sur un endpoint à réponse obligatoire", async () => {
+    server.use(
+      http.post(
+        `${origin}/api/searches`,
+        () => new HttpResponse(null, { status: 201 }),
+      ),
+    );
+
+    await expect(
+      api.createSearch({
+        name: "Backend",
+        keywords: ["python"],
+        sources: ["freework"],
+      }),
+    ).rejects.toMatchObject({
+      status: 201,
+      detail: "La réponse du serveur est vide.",
+    });
+  });
+
+  it("rejette JSON null sur un endpoint à réponse obligatoire", async () => {
+    server.use(
+      http.post(`${origin}/api/syncs`, () =>
+        HttpResponse.json(null, { status: 202 }),
+      ),
+    );
+
+    await expect(
+      api.startSync({ savedSearchId: "search-1" }),
+    ).rejects.toMatchObject({
+      status: 202,
+      detail: "La réponse du serveur est vide.",
+    });
   });
 
   it("expose le détail FastAPI et le statut HTTP dans ApiError", async () => {
