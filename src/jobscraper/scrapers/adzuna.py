@@ -199,9 +199,7 @@ class AdzunaScraper(BaseScraper):
         """
         return None
 
-    def _contract_filter_families(
-        self, criteria: SearchCriteria
-    ) -> list[str | None]:
+    def _contract_filter_families(self, criteria: SearchCriteria) -> list[str | None]:
         if not criteria.contract_types:
             return [None]
 

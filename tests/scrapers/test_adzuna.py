@@ -39,8 +39,10 @@ def test_mixed_contracts_run_separate_queries_and_deduplicate(
 ) -> None:
     urls: list[str] = []
     responses = iter(
-        [JsonResponse([result("shared"), result("cdd")]),
-         JsonResponse([result("shared"), result("cdi")])]
+        [
+            JsonResponse([result("shared"), result("cdd")]),
+            JsonResponse([result("shared"), result("cdi")]),
+        ]
     )
 
     def request(_operation):
@@ -66,9 +68,7 @@ def test_mixed_contracts_run_separate_queries_and_deduplicate(
         )
     )
 
-    assert [job.id for job in jobs] == [
-        "adzuna_shared", "adzuna_cdd", "adzuna_cdi"
-    ]
+    assert [job.id for job in jobs] == ["adzuna_shared", "adzuna_cdd", "adzuna_cdi"]
     queries = [parse_qs(urlparse(url).query) for url in urls]
     assert [query.get("contract") for query in queries] == [["1"], None]
     assert [query.get("permanent") for query in queries] == [None, ["1"]]
@@ -109,13 +109,16 @@ def test_unsupported_contracts_complete_without_request(
         lambda _operation: pytest.fail("Adzuna must not receive a broad query"),
     )
 
-    assert list(
-        scraper.search(
-            SearchCriteria(
-                contract_types=[ContractType.STAGE, ContractType.ALTERNANCE]
+    assert (
+        list(
+            scraper.search(
+                SearchCriteria(
+                    contract_types=[ContractType.STAGE, ContractType.ALTERNANCE]
+                )
             )
         )
-    ) == []
+        == []
+    )
     assert scraper.search_complete is True
 
 
@@ -150,6 +153,106 @@ def test_http_error_logs_no_authenticated_url(
     assert "secret-key" not in log_output
 
 
+def test_later_contract_family_failure_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strict = AdzunaScraper(
+        {
+            "app_id": "secret-id",
+            "app_key": "secret-key",
+            "max_retries": 1,
+            "propagate_search_errors": True,
+        }
+    )
+    responses = iter(
+        [JsonResponse([result("cdd")]), requests.HTTPError("second family failed")]
+    )
+
+    def request(_operation):
+        value = next(responses)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    monkeypatch.setattr(strict, "_request_with_retry", request)
+    iterator = strict.search(
+        SearchCriteria(
+            contract_types=[ContractType.CDD, ContractType.CDI],
+            max_results=10,
+        )
+    )
+
+    assert next(iterator).id == "adzuna_cdd"
+    with pytest.raises(requests.HTTPError, match="second family failed"):
+        next(iterator)
+    assert strict.search_complete is False
+
+
+def test_debug_logs_never_contain_adzuna_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = AdzunaScraper({"app_id": "secret-id", "app_key": "secret-key"})
+    monkeypatch.setattr(
+        secret, "_request_with_retry", lambda _operation: JsonResponse([])
+    )
+    messages: list[str] = []
+    handler_id = logger.add(
+        lambda message: messages.append(str(message)),
+        level="DEBUG",
+        format="{message}",
+    )
+    try:
+        list(secret.search(SearchCriteria(max_results=1)))
+    finally:
+        logger.remove(handler_id)
+
+    combined = "".join(messages)
+    assert "secret-id" not in combined
+    assert "secret-key" not in combined
+
+
+def test_second_contract_family_paginates_past_globally_seen_ids(
+    scraper: AdzunaScraper, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    urls: list[str] = []
+    responses = iter(
+        [
+            JsonResponse([result("shared")]),
+            JsonResponse([result("shared")], count=100),
+            JsonResponse([result("cdi-page-two")], count=100),
+        ]
+    )
+
+    original_build = scraper._build_search_url
+    monkeypatch.setattr(
+        scraper,
+        "_build_search_url",
+        lambda *args, **kwargs: (
+            urls.append(original_build(*args, **kwargs)) or urls[-1]
+        ),
+    )
+    monkeypatch.setattr(
+        scraper, "_request_with_retry", lambda _operation: next(responses)
+    )
+
+    jobs = list(
+        scraper.search(
+            SearchCriteria(
+                contract_types=[ContractType.CDD, ContractType.CDI],
+                max_results=10,
+            )
+        )
+    )
+
+    assert [job.id for job in jobs] == ["adzuna_shared", "adzuna_cdi-page-two"]
+    assert [urlparse(url).path.rsplit("/", 1)[-1] for url in urls] == ["1", "1", "2"]
+    assert [parse_qs(urlparse(url).query).get("permanent") for url in urls] == [
+        None,
+        ["1"],
+        ["1"],
+    ]
+
+
 @pytest.mark.parametrize(
     ("contracts", "expected"),
     [
@@ -172,9 +275,10 @@ def test_contract_filter_families_preserve_supported_first_seen_order(
     contracts: list[ContractType],
     expected: list[str | None],
 ) -> None:
-    assert scraper._contract_filter_families(
-        SearchCriteria(contract_types=contracts)
-    ) == expected
+    assert (
+        scraper._contract_filter_families(SearchCriteria(contract_types=contracts))
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
