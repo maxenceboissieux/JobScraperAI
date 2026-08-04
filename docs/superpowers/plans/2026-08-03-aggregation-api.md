@@ -245,7 +245,7 @@ git commit -m "feat: orchestrate resilient source synchronization"
 **Interfaces:**
 - Produces: `JobDetailsService.get(canonical_job_id: str, max_age: timedelta = timedelta(days=1)) -> JobDetailsResult`; result fields `job`, `cache_state: Literal['fresh','refreshed','stale']`, `updated_at`, `warning`.
 
-- [ ] **Step 1: Write cache-state tests**
+- [x] **Step 1: Write cache-state tests**
 
 ```python
 assert service.get(job.id).cache_state == "refreshed"
@@ -257,21 +257,21 @@ assert result.cache_state == "stale"
 assert result.job.description == "Description conservée"
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `.venv/bin/python -m pytest tests/services/test_details.py -v`
 
-- [ ] **Step 3: Implement best-source selection and cache persistence**
+- [x] **Step 3: Implement best-source selection and cache persistence**
 
 Prefer an active listing with a known detail parser; otherwise use the newest active source listing. Persist description, salary, skills, benefits and `details_fetched_at`. Never erase cached fields when refresh returns partial data.
 
-- [ ] **Step 4: Verify detail cache tests**
+- [x] **Step 4: Verify detail cache tests**
 
 Run: `.venv/bin/python -m pytest tests/services/test_details.py -v`
 
 Expected: refreshed, fresh and stale fallback paths pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/jobscraper/services/details.py tests/services/test_details.py
