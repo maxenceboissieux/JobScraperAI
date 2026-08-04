@@ -82,68 +82,92 @@ class HelloWorkScraper(BaseScraper):
             JobOffer: Les offres d'emploi trouvées
         """
         self._begin_search()
-        url = self._build_search_url(criteria)
-        logger.info(f"Recherche HelloWork: {url}")
-
-        page = 1
         jobs_found = 0
         max_results = criteria.max_results
-        seen_ids: set = set()
+        seen_ids: set[str] = set()
+        search_incomplete = False
 
-        while jobs_found < max_results:
-            page_url = f"{url}&p={page}" if page > 1 else url
-            logger.debug(f"Récupération page {page}: {page_url}")
+        queries = self._search_queries(criteria)
+        for query_index, query in enumerate(queries):
+            url = self._build_search_url(criteria, query=query)
+            logger.info(f"Recherche HelloWork: {url}")
 
-            try:
-                html = self._fetch_page(page_url)
-                soup = BeautifulSoup(html, "lxml")
+            page = 1
+            seen_ids_in_query: set[str] = set()
+            while jobs_found < max_results:
+                page_url = f"{url}&p={page}" if page > 1 else url
+                logger.debug(f"Récupération page {page}: {page_url}")
 
-                job_cards = self._extract_job_cards(soup)
+                try:
+                    html = self._fetch_page(page_url)
+                    soup = BeautifulSoup(html, "lxml")
+                    job_cards = self._extract_job_cards(soup)
 
-                if not job_cards:
-                    logger.info("Plus d'offres trouvées")
-                    self._mark_search_complete()
-                    break
-
-                new_jobs_on_page = 0
-                parsed_jobs_on_page = 0
-                for card in job_cards:
-                    if jobs_found >= max_results:
+                    if not job_cards:
+                        logger.info("Plus d'offres trouvées")
                         break
 
-                    job = self._parse_job_card(card)
-                    if job:
-                        parsed_jobs_on_page += 1
-                        if job.id in seen_ids:
-                            logger.debug(f"Doublon ignoré: {job.id}")
-                            continue
-                        seen_ids.add(job.id)
-                        jobs_found += 1
-                        new_jobs_on_page += 1
-                        yield job
+                    new_jobs_on_page = 0
+                    new_ids_in_query = 0
+                    parsed_jobs_on_page = 0
+                    for card in job_cards:
+                        job = self._parse_job_card(card)
+                        if job:
+                            parsed_jobs_on_page += 1
+                            if job.id not in seen_ids_in_query:
+                                seen_ids_in_query.add(job.id)
+                                new_ids_in_query += 1
 
-                if parsed_jobs_on_page != len(job_cards):
-                    self._incomplete_search(
-                        "Une partie des résultats HelloWork est inexploitable"
-                    )
+                            if job.id in seen_ids:
+                                logger.debug(f"Doublon ignoré: {job.id}")
+                                continue
 
-                if new_jobs_on_page == 0:
-                    logger.info("Plus de nouvelles offres")
-                    self._incomplete_search(
-                        "La pagination HelloWork ne contient que des doublons"
-                    )
+                            seen_ids.add(job.id)
+                            jobs_found += 1
+                            new_jobs_on_page += 1
+                            yield job
+
+                            if jobs_found >= max_results:
+                                return
+
+                    if parsed_jobs_on_page != len(job_cards):
+                        search_incomplete = True
+                        self._incomplete_search(
+                            "Une partie des résultats HelloWork est inexploitable"
+                        )
+                        break
+
+                    if query_index > 0 and page == 1 and new_jobs_on_page == 0:
+                        logger.info("La requête HelloWork recouvre les résultats précédents")
+                        break
+
+                    if page > 1 and new_ids_in_query == 0:
+                        logger.info("Plus de nouvelles offres")
+                        search_incomplete = True
+                        self._incomplete_search(
+                            "La pagination HelloWork ne contient que des doublons"
+                        )
+                        break
+
+                    page += 1
+                    if self.delay_between_requests > 0:
+                        time.sleep(self.delay_between_requests)
+
+                except Exception as e:
+                    logger.error(f"Erreur lors de la recherche: {e}")
+                    if self.config.get("propagate_search_errors"):
+                        raise
+                    search_incomplete = True
                     break
 
-                page += 1
+            if search_incomplete:
+                break
+            if query_index < len(queries) - 1 and self.delay_between_requests > 0:
                 time.sleep(self.delay_between_requests)
 
-            except Exception as e:
-                logger.error(f"Erreur lors de la recherche: {e}")
-                if self.config.get("propagate_search_errors"):
-                    raise
-                break
-
         logger.info(f"Recherche terminée: {jobs_found} offres uniques trouvées")
+        if not search_incomplete:
+            self._mark_search_complete()
 
     def get_job_details(self, job_id: str) -> Optional[JobOffer]:
         """
@@ -168,7 +192,28 @@ class HelloWorkScraper(BaseScraper):
             logger.error(f"Erreur récupération détails job {job_id}: {e}")
             return None
 
-    def _build_search_url(self, criteria: SearchCriteria) -> str:
+    @staticmethod
+    def _search_queries(criteria: SearchCriteria) -> list[str]:
+        title = (criteria.title or "").strip()
+        keywords = [keyword.strip() for keyword in criteria.keywords if keyword.strip()]
+        candidates = ([title] if title else []) + [
+            " ".join(filter(None, [title, keyword])) for keyword in keywords
+        ]
+        if not candidates:
+            return [""]
+
+        queries: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            normalized = " ".join(candidate.split()).casefold()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                queries.append(" ".join(candidate.split()))
+        return queries or [""]
+
+    def _build_search_url(
+        self, criteria: SearchCriteria, *, query: str | None = None
+    ) -> str:
         """
         Construit l'URL de recherche HelloWork.
 
@@ -180,17 +225,12 @@ class HelloWorkScraper(BaseScraper):
         """
         base = f"{self.base_url}/fr-fr/emploi/recherche.html"
 
-        # Construire les mots-clés
-        keywords_parts = []
-        if criteria.title:
-            keywords_parts.append(criteria.title)
-        if criteria.keywords:
-            keywords_parts.extend(criteria.keywords)
-
         params = {}
 
-        if keywords_parts:
-            params["k"] = " ".join(keywords_parts)
+        if query is None:
+            query = self._search_queries(criteria)[0]
+        if query:
+            params["k"] = query
 
         if criteria.location:
             params["l"] = criteria.location

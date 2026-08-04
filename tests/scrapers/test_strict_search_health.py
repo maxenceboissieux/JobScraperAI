@@ -33,6 +33,15 @@ def offer(source: str, suffix: str = "1") -> JobOffer:
     )
 
 
+def hellowork_card(identifier: str) -> str:
+    return (
+        f'<li data-id-storage-item-id="{identifier}">'
+        f'<input name="title" value="Offer {identifier}">'
+        f'<input name="company" value="Acme">'
+        f'<a href="/fr-fr/emplois/{identifier}.html">Offer</a></li>'
+    )
+
+
 @pytest.mark.parametrize(
     "scraper_type", [LinkedInScraper, HelloWorkScraper, FranceTravailScraper]
 )
@@ -243,7 +252,6 @@ def test_wttj_strict_radius_requires_geocoding(
     "scraper",
     [
         LinkedInScraper({"delay": 0, "propagate_search_errors": True}),
-        HelloWorkScraper({"delay": 0, "propagate_search_errors": True}),
         FranceTravailScraper({"delay": 0, "propagate_search_errors": True}),
     ],
 )
@@ -256,6 +264,65 @@ def test_html_sources_reject_duplicate_only_page(
 
     iterator = scraper.search(SearchCriteria(max_results=10))
     assert next(iterator).id == f"{scraper.name}_1"
+    with pytest.raises(IncompleteSearchError):
+        next(iterator)
+
+
+def test_hellowork_aggregates_alternative_queries_and_deduplicates_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
+    responses = iter(
+        [
+            hellowork_card("1") + hellowork_card("2"),
+            "",
+            hellowork_card("2") + hellowork_card("3"),
+            "",
+        ]
+    )
+    fetched: list[str] = []
+
+    def fetch(url: str) -> str:
+        fetched.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(scraper, "_fetch_page", fetch)
+    jobs = list(
+        scraper.search(SearchCriteria(keywords=["react", "nextjs"], max_results=10))
+    )
+
+    assert [job.id for job in jobs] == ["hellowork_1", "hellowork_2", "hellowork_3"]
+    assert ["k=react" in fetched[0], "k=nextjs" in fetched[2]] == [True, True]
+    assert scraper.search_complete is True
+
+
+def test_hellowork_applies_max_results_across_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_page",
+        lambda _url: hellowork_card("1") + hellowork_card("2") + hellowork_card("3"),
+    )
+
+    jobs = list(
+        scraper.search(SearchCriteria(keywords=["react", "nextjs"], max_results=2))
+    )
+
+    assert [job.id for job in jobs] == ["hellowork_1", "hellowork_2"]
+    assert scraper.search_complete is False
+
+
+def test_hellowork_rejects_duplicate_only_later_page_in_one_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
+    responses = iter([hellowork_card("1"), hellowork_card("1")])
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: next(responses))
+
+    iterator = scraper.search(SearchCriteria(keywords=["react"], max_results=10))
+    assert next(iterator).id == "hellowork_1"
     with pytest.raises(IncompleteSearchError):
         next(iterator)
 

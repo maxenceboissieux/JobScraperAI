@@ -98,6 +98,34 @@ def test_hellowork_preserves_an_iso_publication_date(load_fixture) -> None:
     assert job.posted_at == datetime.fromisoformat("2026-08-01T10:00:00+00:00")
 
 
+def test_hellowork_builds_ordered_alternative_queries() -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+    criteria = SearchCriteria(
+        title="Developpeur fullstack",
+        keywords=["react", "nextjs", "React", "reactjs"],
+        location="France",
+    )
+
+    assert scraper._search_queries(criteria) == [
+        "Developpeur fullstack",
+        "Developpeur fullstack react",
+        "Developpeur fullstack nextjs",
+        "Developpeur fullstack reactjs",
+    ]
+    assert "k=Developpeur+fullstack" in scraper._build_search_url(criteria)
+
+
+def test_hellowork_uses_each_keyword_without_a_title_and_supports_no_terms() -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+
+    assert scraper._search_queries(SearchCriteria(keywords=["react", "nextjs"])) == [
+        "react",
+        "nextjs",
+    ]
+    assert scraper._search_queries(SearchCriteria()) == [""]
+    assert "k=" not in scraper._build_search_url(SearchCriteria(), query="")
+
+
 @pytest.mark.parametrize(
     ("contract_label", "expected_contract_type"),
     [
@@ -161,7 +189,7 @@ def test_adzuna_parses_representative_result(load_fixture) -> None:
     ("scraper", "expected_url_fragment"),
     [
         (LinkedInScraper({"delay": 0}), "keywords=%22Python%22+django"),
-        (HelloWorkScraper({"delay": 0}), "k=Python+django"),
+        (HelloWorkScraper({"delay": 0}), "k=Python"),
         (FranceTravailScraper({"delay": 0}), "motsCles=Python+django+Paris"),
     ],
 )
