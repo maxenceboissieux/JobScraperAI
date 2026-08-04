@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { AppProviders } from "./app/providers";
 import "./styles/base.css";
+import "./styles/jobs.css";
 
 const root = document.getElementById("root");
 

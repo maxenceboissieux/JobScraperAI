@@ -6,6 +6,7 @@ import { api, ApiError } from "../api/client";
 import type { SavedSearch, SearchCreate, SearchUpdate } from "../api/types";
 import { AppHeader } from "../components/AppHeader";
 import { JobFilters } from "../features/jobs/JobFilters";
+import { JobGrid } from "../features/jobs/JobGrid";
 import { PeriodTabs } from "../features/jobs/PeriodTabs";
 import { useJobFilters } from "../features/jobs/useJobFilters";
 import { SearchEditor } from "../features/searches/SearchEditor";
@@ -88,6 +89,12 @@ export function App() {
       next.append("search", searchId);
     }
     setSearchParams(next, { replace });
+  }
+
+  function selectJob(jobId: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set("job", jobId);
+    setSearchParams(next);
   }
 
   useEffect(() => {
@@ -325,34 +332,11 @@ export function App() {
         ) : null}
 
         {searchesQuery.isSuccess && selectedSearch !== null ? (
-          <section className="workspace-preview" aria-labelledby="workspace-title">
-            <div>
-              <p className="eyebrow">Recherche sélectionnée</p>
-              <div className="workspace-preview__heading">
-                <h2 id="workspace-title">{selectedSearch.name}</h2>
-                <span
-                  className={
-                    selectedSearch.active
-                      ? "state-badge state-badge--active"
-                      : "state-badge state-badge--paused"
-                  }
-                >
-                  {selectedSearch.active ? "Active" : "Suspendue"}
-                </span>
-              </div>
-              <p>
-                {selectedSearch.keywords.length > 0
-                  ? selectedSearch.keywords.join(" · ")
-                  : "Aucun mot-clé renseigné"}
-                {selectedSearch.location ? ` — ${selectedSearch.location}` : ""}
-              </p>
-            </div>
-            <div className="workspace-preview__placeholder" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-          </section>
+          <JobGrid
+            filters={jobFilters.filters}
+            onPageChange={jobFilters.setOffset}
+            onSelectJob={selectJob}
+          />
         ) : null}
       </main>
 
