@@ -94,13 +94,15 @@ def get_launch_agent_status(
     result = _run_launchctl(["print", _service_target(uid)])
     if result.returncode == 0:
         state_match = re.search(
-            r"^\s*state\s*=\s*(\S+)", result.stdout, flags=re.MULTILINE
+            r"^[ \t]*state[ \t]*=[ \t]*([^\r\n]*\S)[ \t]*$",
+            result.stdout,
+            flags=re.MULTILINE,
         )
         schedule = _read_schedule_if_valid(plist_path) if plist_exists else None
         return LaunchAgentStatus(
             loaded=True,
             plist_exists=plist_exists,
-            state=state_match.group(1) if state_match else None,
+            state=state_match.group(1).strip() if state_match else None,
             schedule=schedule,
         )
     if _is_not_loaded(result):

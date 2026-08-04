@@ -732,6 +732,35 @@ def test_status_parses_loaded_state_and_installed_schedule(
     ]
 
 
+@pytest.mark.parametrize(
+    ("launchctl_state", "expected"),
+    [
+        ("not running", "not running"),
+        ("waiting", "waiting"),
+        ("running", "running"),
+    ],
+)
+def test_status_parses_complete_multiword_launchctl_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    launchctl_state: str,
+    expected: str,
+) -> None:
+    output = f"""gui/501/{LAUNCH_AGENT_LABEL} = {{
+\tactive count = 0
+\tstate = {launchctl_state}
+\tprogram = /tmp/jobscraper
+}}
+"""
+    runner = Mock(return_value=_result(stdout=output))
+    monkeypatch.setattr(launchd_module.subprocess, "run", runner)
+
+    status = get_launch_agent_status(home=tmp_path / "home", uid=501)
+
+    assert status.loaded is True
+    assert status.state == expected
+
+
 def test_status_recognizes_explicit_not_loaded_without_confusing_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -925,6 +954,36 @@ def test_cli_automation_status_reports_french_state(
     if getattr(status, "schedule") is not None:
         hour, minute = getattr(status, "schedule")
         assert f"{hour:02d}:{minute:02d}" in result.output
+
+
+@pytest.mark.parametrize(
+    ("launchctl_state", "expected"),
+    [
+        ("not running", "chargée et en attente"),
+        ("waiting", "chargée et en attente"),
+        ("running", "active (état : en cours)"),
+    ],
+)
+def test_cli_automation_status_translates_known_launchctl_states(
+    monkeypatch: pytest.MonkeyPatch,
+    launchctl_state: str,
+    expected: str,
+) -> None:
+    status_reader = Mock(
+        return_value=SimpleNamespace(
+            loaded=True,
+            plist_exists=True,
+            state=launchctl_state,
+            schedule=(8, 0),
+        )
+    )
+    monkeypatch.setattr(cli_module, "get_launch_agent_status", status_reader)
+
+    result = CliRunner().invoke(main, ["automation", "status"])
+
+    assert result.exit_code == 0
+    assert expected in result.output
+    assert launchctl_state not in result.output
 
 
 @pytest.mark.parametrize(

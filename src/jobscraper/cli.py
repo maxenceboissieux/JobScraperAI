@@ -114,8 +114,16 @@ def automation_status() -> None:
         else ""
     )
     if status.loaded:
-        state = f" (état launchd : {status.state})" if status.state else ""
-        click.echo(f"Automatisation active{state}.{schedule}")
+        normalized_state = " ".join((status.state or "").casefold().split())
+        if normalized_state == "running":
+            summary = "Automatisation active (état : en cours)"
+        elif normalized_state in {"not running", "waiting"}:
+            summary = "Automatisation chargée et en attente"
+        elif status.state:
+            summary = f"Automatisation chargée (état launchd : {status.state})"
+        else:
+            summary = "Automatisation chargée"
+        click.echo(f"{summary}.{schedule}")
     elif status.plist_exists:
         click.echo(f"Automatisation installée mais inactive.{schedule}")
     else:
