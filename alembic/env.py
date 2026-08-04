@@ -16,7 +16,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("JOBSCRAPER_DATABASE_URL")
+database_url = config.attributes.get("database_url") or os.getenv(
+    "JOBSCRAPER_DATABASE_URL"
+)
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 

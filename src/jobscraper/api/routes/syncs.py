@@ -81,9 +81,22 @@ def execute_sync(factory: sessionmaker[Session], run_id: str) -> None:
             _mark_worker_failure(factory, run_id)
 
 
-def _observe_future(future: Future[None]) -> None:
+def _observe_future(
+    future: Future[None], factory: sessionmaker[Session], run_id: str
+) -> None:
     """Force executor exceptions into local logs if a worker wrapper regresses."""
 
+    if future.cancelled():
+        with factory() as session:
+            try:
+                if SyncRunRepository(session).fail_pending(run_id):
+                    session.commit()
+            except Exception:
+                session.rollback()
+                logger.exception(
+                    "Impossible de finaliser la synchronisation annulée {}", run_id
+                )
+        return
     try:
         future.result()
     except Exception:
@@ -97,14 +110,17 @@ def _submit(request: Request, run_id: str, session: Session) -> None:
         )
     except Exception as exc:
         logger.opt(exception=exc).error("Soumission de synchronisation refusée")
-        run = SyncRunRepository(session).finish(run_id, status="failed")
-        if run is not None:
+        if SyncRunRepository(session).fail_pending(run_id):
             session.commit()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="La synchronisation n’a pas pu être démarrée.",
         ) from None
-    future.add_done_callback(_observe_future)
+    future.add_done_callback(
+        lambda completed: _observe_future(
+            completed, request.app.state.session_factory, run_id
+        )
+    )
 
 
 def _start(

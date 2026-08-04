@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from threading import Barrier, Event, get_ident
+from threading import Barrier, Event, Lock, Timer, get_ident
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import inspect, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from alembic import command
@@ -15,6 +16,7 @@ from alembic.config import Config
 from jobscraper.api.app import create_app, run
 from jobscraper.db.base import utc_now
 from jobscraper.db.models import SavedSearch, SyncRun
+from jobscraper.db.session import create_engine_and_session
 from jobscraper.models.job import SearchCriteria
 from jobscraper.repositories.saved_searches import SavedSearchRepository
 from jobscraper.repositories.sync_runs import SyncRunRepository
@@ -127,6 +129,50 @@ def test_simultaneous_same_search_posts_allow_exactly_one_active_run(
     assert sorted(response.status_code for response in responses) == [202, 409]
     conflict = next(response for response in responses if response.status_code == 409)
     assert conflict.json() == {"detail": "Une synchronisation est déjà en cours."}
+
+
+def test_database_locked_loser_is_409_only_when_an_active_run_is_durable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if a cross-process SQLite lock becomes 500 or every DB error becomes 409."""
+
+    monkeypatch.setattr(SyncService, "execute", lambda self, run_id: None)
+    active_search = create_search(client, sources=["freework"])
+    assert (
+        client.post("/api/syncs", json={"savedSearchId": active_search}).status_code
+        == 202
+    )
+    idle_search = create_search(client, sources=["linkedin"])
+    active_checks = 0
+
+    def locked_start(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise OperationalError("INSERT", {}, Exception("database is locked"))
+
+    def eventually_observe_active(
+        _repository: SyncRunRepository, saved_search_id: str
+    ) -> bool:
+        nonlocal active_checks
+        if saved_search_id != active_search:
+            return False
+        active_checks += 1
+        return active_checks >= 2
+
+    monkeypatch.setattr(SyncRunRepository, "start", locked_start)
+    monkeypatch.setattr(
+        SyncRunRepository,
+        "_active_run_exists",
+        eventually_observe_active,
+        raising=False,
+    )
+
+    conflict = client.post("/api/syncs", json={"savedSearchId": active_search})
+    unrelated = client.post("/api/syncs", json={"savedSearchId": idle_search})
+
+    assert conflict.status_code == 409
+    assert conflict.json() == {"detail": "Une synchronisation est déjà en cours."}
+    assert unrelated.status_code == 500
+    assert active_checks == 2
 
 
 @pytest.mark.parametrize("retry_status", ["failed", "partial"])
@@ -255,6 +301,46 @@ def test_executor_shutdown_is_owned_by_application_lifespan(database_url: str) -
         executor.submit(lambda: None)
 
 
+def test_shutdown_marks_only_queued_pending_runs_failed(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if cancel_futures leaves a queued active-run blocker after restart."""
+
+    app = create_app(database_url)
+    release = Event()
+    two_started = Event()
+    count_lock = Lock()
+    started = 0
+
+    def execute(self: SyncService, run_id: str) -> None:
+        nonlocal started
+        assert self.sync_runs.claim_pending(run_id) is not None
+        self.session.commit()
+        with count_lock:
+            started += 1
+            if started == 2:
+                two_started.set()
+        release.wait(timeout=3)
+        self.sync_runs.finish(run_id, status="succeeded")
+        self.session.commit()
+
+    monkeypatch.setattr(SyncService, "execute", execute)
+    with TestClient(app) as client:
+        searches = [create_search(client, sources=["freework"]) for _ in range(3)]
+        runs = [
+            client.post("/api/syncs", json={"savedSearchId": search_id}).json()["id"]
+            for search_id in searches
+        ]
+        assert two_started.wait(timeout=3)
+        timer = Timer(0.2, release.set)
+        timer.start()
+
+    timer.join(timeout=1)
+    with app.state.session_factory() as session:
+        statuses = [SyncRunRepository(session).get(run_id).status for run_id in runs]  # type: ignore[union-attr]
+    assert statuses == ["succeeded", "succeeded", "failed"]
+
+
 def test_startup_upgrades_an_existing_revision_to_head(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -279,6 +365,104 @@ def test_startup_upgrades_an_existing_revision_to_head(
     finally:
         engine.dispose()
     assert revision == "0002"
+
+
+def test_explicit_database_url_wins_over_conflicting_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if Alembic migrates the environment DB instead of the factory argument."""
+
+    explicit_url = f"sqlite:///{tmp_path / 'explicit.db'}"
+    environment_url = f"sqlite:///{tmp_path / 'environment.db'}"
+    monkeypatch.setenv("JOBSCRAPER_DATABASE_URL", environment_url)
+
+    with TestClient(create_app(explicit_url)):
+        pass
+
+    engine, _factory = create_engine_and_session(explicit_url)
+    try:
+        with engine.connect() as connection:
+            revision = connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
+    finally:
+        engine.dispose()
+    assert revision == "0002"
+    assert not (tmp_path / "environment.db").exists()
+
+
+def test_default_database_creates_parent_in_a_fresh_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if first launch assumes that ./data already exists."""
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("JOBSCRAPER_DATABASE_URL", raising=False)
+
+    with TestClient(create_app()):
+        pass
+
+    database = tmp_path / "data" / "jobscraper.db"
+    assert database.is_file()
+    engine, _factory = create_engine_and_session(f"sqlite:///{database}")
+    try:
+        with engine.connect() as connection:
+            assert (
+                connection.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0002"
+            )
+    finally:
+        engine.dispose()
+
+
+def test_migration_reconciles_legacy_active_overlaps_before_unique_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fails if valid revision-0001 data prevents the 0002 upgrade."""
+
+    monkeypatch.delenv("JOBSCRAPER_DATABASE_URL", raising=False)
+    database_url = f"sqlite:///{tmp_path / 'legacy-overlap.db'}"
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "0001")
+    engine, factory = create_engine_and_session(database_url)
+    with factory() as session:
+        search = SavedSearchRepository(session).create(
+            name="Backend",
+            criteria=SearchCriteria(keywords=["backend"]),
+            sources=["freework"],
+        )
+        older = SyncRunRepository(session).start(
+            search.id, requested_sources=["freework"]
+        )
+        newer = SyncRunRepository(session).start(
+            search.id, requested_sources=["freework"], status="running"
+        )
+        older.created_at = datetime(2026, 8, 3, 8, tzinfo=timezone.utc)
+        newer.created_at = datetime(2026, 8, 3, 9, tzinfo=timezone.utc)
+        session.commit()
+        older_id, newer_id = older.id, newer.id
+
+    command.upgrade(config, "head")
+    with factory() as session:
+        upgraded_older = SyncRunRepository(session).get(older_id)
+        upgraded_newer = SyncRunRepository(session).get(newer_id)
+        assert upgraded_older is not None and upgraded_newer is not None
+        assert upgraded_older.status == "failed"
+        assert upgraded_older.finished_at is not None
+        assert upgraded_newer.status == "running"
+    command.downgrade(config, "0001")
+    with engine.connect() as connection:
+        assert "uq_sync_runs_one_active_search" not in {
+            item["name"] for item in inspect(connection).get_indexes("sync_runs")
+        }
+        assert (
+            connection.scalar(
+                text("SELECT status FROM sync_runs WHERE id = :id"), {"id": older_id}
+            )
+            == "failed"
+        )
+    engine.dispose()
 
 
 def test_in_memory_sqlite_is_shared_with_executor_thread(

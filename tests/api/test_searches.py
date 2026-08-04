@@ -104,6 +104,74 @@ def test_invalid_search_payload_returns_422(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("contractTypes", ["permanent"]),
+        ("experienceLevels", ["expert"]),
+        ("workplaceTypes", ["anywhere"]),
+    ],
+)
+def test_enum_like_search_criteria_are_validated_at_the_schema_boundary(
+    client: TestClient, field: str, value: list[str]
+) -> None:
+    """Fails if domain validation escapes the route as a sanitized 500."""
+
+    response = client.post("/api/searches", json={**SEARCH_PAYLOAD, field: value})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "name",
+        "keywords",
+        "location",
+        "contractTypes",
+        "experienceLevels",
+        "workplaceTypes",
+        "companies",
+        "excludeCompanies",
+        "sources",
+        "active",
+    ],
+)
+def test_patch_rejects_null_for_non_nullable_saved_search_fields(
+    client: TestClient, field: str
+) -> None:
+    """Fails if explicit JSON null is mistaken for an omitted patch field."""
+
+    created = client.post("/api/searches", json=SEARCH_PAYLOAD).json()
+
+    response = client.patch(f"/api/searches/{created['id']}", json={field: None})
+
+    assert response.status_code == 422
+    persisted = client.get("/api/searches").json()[0]
+    assert persisted == created
+
+
+@pytest.mark.parametrize("method", ["post", "patch"])
+def test_duplicate_saved_search_sources_return_422(
+    client: TestClient, method: str
+) -> None:
+    """Fails if duplicate sources survive with inconsistent retry/order behavior."""
+
+    if method == "post":
+        response = client.post(
+            "/api/searches",
+            json={**SEARCH_PAYLOAD, "sources": ["freework", "freework"]},
+        )
+    else:
+        search_id = client.post("/api/searches", json=SEARCH_PAYLOAD).json()["id"]
+        response = client.patch(
+            f"/api/searches/{search_id}",
+            json={"sources": ["linkedin", "linkedin"]},
+        )
+
+    assert response.status_code == 422
+
+
 def test_search_persistence_failure_is_sanitized_and_next_request_works(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

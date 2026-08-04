@@ -2,11 +2,12 @@
 
 from collections.abc import Sequence
 from datetime import datetime
+from time import sleep
 from typing import Any, cast
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from jobscraper.db.base import utc_now
@@ -64,6 +65,38 @@ class SyncRunRepository:
                 return self.start(saved_search_id, requested_sources=requested_sources)
         except IntegrityError:
             return None
+        except OperationalError as exc:
+            if "database is locked" not in str(exc.orig).casefold():
+                raise
+            self.session.rollback()
+            for attempt in range(4):
+                try:
+                    if self._active_run_exists(saved_search_id):
+                        return None
+                except OperationalError as observation_error:
+                    if (
+                        "database is locked"
+                        not in str(observation_error.orig).casefold()
+                    ):
+                        raise
+                self.session.rollback()
+                if attempt < 3:
+                    sleep(0.01 * (attempt + 1))
+            raise
+
+    def _active_run_exists(self, saved_search_id: str) -> bool:
+        return (
+            self.session.scalar(
+                select(SyncRun.pk)
+                .join(SavedSearch, SyncRun.saved_search_id == SavedSearch.pk)
+                .where(
+                    SavedSearch.id == saved_search_id,
+                    SyncRun.status.in_({"pending", "running"}),
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     def latest(self) -> SyncRun | None:
         """Return the globally newest synchronization attempt."""
@@ -85,6 +118,20 @@ class SyncRunRepository:
                 .order_by(SourceSyncResult.pk.asc())
             )
         )
+
+    def fail_pending(self, run_id: str, *, finished_at: datetime | None = None) -> bool:
+        """Atomically fail queued work without overwriting a claimed run."""
+
+        result = cast(
+            CursorResult[Any],
+            self.session.execute(
+                update(SyncRun)
+                .where(SyncRun.id == run_id, SyncRun.status == "pending")
+                .values(status="failed", finished_at=finished_at or utc_now())
+            ),
+        )
+        self.session.flush()
+        return result.rowcount == 1
 
     def get(self, run_id: str) -> SyncRun | None:
         """Return a run by public UUID."""
