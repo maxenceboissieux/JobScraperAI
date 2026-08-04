@@ -62,6 +62,7 @@ describe("parseJobDescription", () => {
     expect(parseJobDescription("ROLE API")).toEqual([{ type: "heading", text: "ROLE API" }]);
     expect(parseJobDescription("ROLE")).toEqual([{ type: "paragraph", text: "ROLE" }]);
     expect(parseJobDescription("ABCDE ef")).toEqual([{ type: "heading", text: "ABCDE ef" }]);
+    expect(parseJobDescription("ABCDEFG hij")).toEqual([{ type: "heading", text: "ABCDEFG hij" }]);
     expect(parseJobDescription("ABCD efg")).toEqual([{ type: "paragraph", text: "ABCD efg" }]);
     expect(
       parseJobDescription("ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT"),
@@ -74,6 +75,12 @@ describe("parseJobDescription", () => {
   it("convertit les marqueurs explicites en liste", () => {
     expect(parseJobDescription("Vos missions :\n- Concevoir\n• Tester\n* Documenter")).toEqual([
       { type: "heading", text: "Vos missions" },
+      { type: "list", items: ["Concevoir", "Tester", "Documenter"] },
+    ]);
+  });
+
+  it("convertit les marqueurs numérotés consécutifs en liste", () => {
+    expect(parseJobDescription("1. Concevoir\n2) Tester\n3. Documenter")).toEqual([
       { type: "list", items: ["Concevoir", "Tester", "Documenter"] },
     ]);
   });

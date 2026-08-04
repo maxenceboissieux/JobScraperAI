@@ -104,7 +104,7 @@ export function parseJobDescription(description: string): DescriptionBlock[] {
       continue;
     }
 
-    const markedItem = line.match(/^[-*•]\s*(.+)$/u);
+    const markedItem = line.match(/^(?:[-*•]\s*|\d+[.)]\s+)(.+)$/u);
     if (markedItem) {
       addParagraph(blocks, paragraphLines);
       listItems.push(markedItem[1].trim());
