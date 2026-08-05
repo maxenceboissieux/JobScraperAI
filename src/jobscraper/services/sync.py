@@ -218,7 +218,11 @@ class SyncService:
                 criteria=criteria,
                 progress=progress,
             )
-            if scraper.strict_search and not scraper.search_complete:
+            if (
+                progress.exhausted
+                and scraper.strict_search
+                and not scraper.search_complete
+            ):
                 scraper._incomplete_search(
                     "La source n’a pas confirmé une recherche complète"
                 )
