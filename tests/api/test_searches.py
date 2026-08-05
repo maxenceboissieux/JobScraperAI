@@ -110,6 +110,7 @@ def test_patch_saved_search_preserves_omitted_criteria(client: TestClient) -> No
     assert body["radiusKm"] is None
     assert body["keywords"] == ["backend", "python"]
     assert body["location"] == "France"
+    assert body["maxResults"] == 250
     assert body["sources"] == ["freework", "linkedin"]
     assert body["active"] is False
 

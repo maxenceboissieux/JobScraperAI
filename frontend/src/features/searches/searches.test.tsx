@@ -207,6 +207,27 @@ describe("gestion des recherches enregistrées", () => {
     await waitFor(() => expect(received).toEqual({ maxResults: 1000 }));
   });
 
+  it("affiche une limite persistée hors presets sans la rendre sélectionnable", async () => {
+    const current = savedSearch({ maxResults: 750 });
+    server.use(
+      http.get(`${origin}/api/searches`, () => HttpResponse.json([current])),
+    );
+    const { user } = renderApp(`/?search=${current.id}`);
+    await screen.findByRole("combobox", { name: "Recherche enregistrée" });
+
+    await user.click(screen.getByRole("button", { name: "Modifier la recherche" }));
+
+    const resultLimit = screen.getByLabelText("Offres maximum par source");
+    const options = within(resultLimit).getAllByRole("option");
+    expect(resultLimit).toHaveValue("750");
+    expect(within(resultLimit).getByRole("option", { name: "750" })).toBeDisabled();
+    expect(
+      options
+        .filter((option) => !(option as HTMLOptionElement).disabled)
+        .map((option) => (option as HTMLOptionElement).value),
+    ).toEqual(["100", "250", "500", "1000"]);
+  });
+
   it("préserve les valeurs historiques inconnues lors d’une modification sans rapport", async () => {
     const legacy = savedSearch({
       id: "search-legacy",

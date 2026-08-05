@@ -222,6 +222,9 @@ export function SearchEditor({
   const titleId = useId();
   const descriptionId = useId();
   const isEditing = search !== null;
+  const hasCustomResultLimit = !RESULT_LIMIT_CHOICES.some(
+    (limit) => limit === values.maxResults,
+  );
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -626,6 +629,11 @@ export function SearchEditor({
                   }))
                 }
               >
+                {hasCustomResultLimit ? (
+                  <option value={values.maxResults} disabled>
+                    {values.maxResults.toLocaleString("fr-FR")}
+                  </option>
+                ) : null}
                 {RESULT_LIMIT_CHOICES.map((limit) => (
                   <option value={limit} key={limit}>{limit.toLocaleString("fr-FR")}</option>
                 ))}

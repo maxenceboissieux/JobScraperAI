@@ -139,6 +139,21 @@ class StrictCappedScraper(BaseScraper):
         return None
 
 
+class StrictIncompleteScraper(BaseScraper):
+    name = "hellowork"
+
+    def __init__(self) -> None:
+        super().__init__({"propagate_search_errors": True})
+
+    def search(self, criteria: SearchCriteria) -> Iterator[JobOffer]:
+        self._begin_search()
+        for index in range(criteria.max_results - 1):
+            yield offer(f"incomplete-{index}", source=self.name)
+
+    def get_job_details(self, job_id: str) -> JobOffer | None:
+        return None
+
+
 def source_results(session: Session, run_id: str) -> dict[str, SourceSyncResult]:
     run = SyncRunRepository(session).get(run_id)
     assert run is not None
@@ -189,6 +204,35 @@ def test_strict_source_cap_is_expected_partial_without_error_log(
     )
     assert scraper.search_complete is False
     assert not any("Échec de la source" in message for message in messages)
+
+
+def test_exhausted_strict_source_without_completion_uses_failure_boundary(
+    session: Session,
+) -> None:
+    """Fails if a genuinely incomplete strict scan is classified as a cap."""
+
+    saved_search = SavedSearchRepository(session).create(
+        name="Incomplete",
+        criteria=SearchCriteria(keywords=["react"], max_results=2),
+        sources=["hellowork"],
+    )
+    scraper = StrictIncompleteScraper()
+    messages: list[str] = []
+    sink = logger.add(lambda message: messages.append(str(message)))
+    try:
+        run_id = SyncService(
+            session, registry=FixedScraperRegistry(scraper)
+        ).run(saved_search.id)
+    finally:
+        logger.remove(sink)
+
+    result = source_results(session, run_id)["hellowork"]
+    assert result.status == "partial"
+    assert (result.offers_seen, result.offers_persisted) == (1, 1)
+    assert result.error_message == "La synchronisation de la source a échoué."
+    assert "La limite de résultats a été atteinte" not in result.error_message
+    assert scraper.search_complete is False
+    assert any("Échec de la source" in message for message in messages)
 
 
 def test_mixed_source_outcomes_persist_success_and_finish_partial(
