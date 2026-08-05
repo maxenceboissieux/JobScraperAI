@@ -63,7 +63,9 @@ class HelloWorkScraper(BaseScraper):
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
-    def _is_within_recency_window(self, posted_at: Optional[datetime]) -> bool:
+    def _is_within_recency_window(
+        self, posted_at: Optional[datetime], *, now: Optional[datetime] = None
+    ) -> bool:
         if posted_at is None:
             return True
         normalized = (
@@ -71,7 +73,7 @@ class HelloWorkScraper(BaseScraper):
             if posted_at.tzinfo is None
             else posted_at.astimezone(timezone.utc)
         )
-        return normalized >= self._now() - self.MAX_LISTING_AGE
+        return normalized >= (now or self._now()) - self.MAX_LISTING_AGE
 
     def _get_headers(self) -> dict:
         """
@@ -106,6 +108,7 @@ class HelloWorkScraper(BaseScraper):
         if jobs_found >= max_results:
             return
 
+        search_now = self._now()
         seen_ids: set[str] = set()
         search_incomplete = False
 
@@ -136,7 +139,7 @@ class HelloWorkScraper(BaseScraper):
                     new_ids_in_query = 0
                     parsed_jobs_on_page = 0
                     for card in job_cards:
-                        job = self._parse_job_card(card)
+                        job = self._parse_job_card(card, now=search_now)
                         if job:
                             parsed_jobs_on_page += 1
                             if job.id not in seen_ids_in_query:
@@ -148,7 +151,9 @@ class HelloWorkScraper(BaseScraper):
                                 continue
 
                             seen_ids.add(job.id)
-                            if not self._is_within_recency_window(job.posted_at):
+                            if not self._is_within_recency_window(
+                                job.posted_at, now=search_now
+                            ):
                                 logger.debug(
                                     "Offre HelloWork de plus de 30 jours ignorée: {}",
                                     job.id,
@@ -318,7 +323,9 @@ class HelloWorkScraper(BaseScraper):
 
         return []
 
-    def _parse_job_card(self, card: Tag) -> Optional[JobOffer]:
+    def _parse_job_card(
+        self, card: Tag, *, now: Optional[datetime] = None
+    ) -> Optional[JobOffer]:
         """
         Parse une carte d'offre d'emploi HelloWork.
 
@@ -407,7 +414,7 @@ class HelloWorkScraper(BaseScraper):
                     salary_text = text
 
             # Date de publication
-            posted_at = self._parse_posted_date(card)
+            posted_at = self._parse_posted_date(card, now=now)
 
             # Validation minimale
             if not title:
@@ -444,7 +451,9 @@ class HelloWorkScraper(BaseScraper):
         }
         return mapping.get(text_upper)
 
-    def _parse_posted_date(self, card: Tag) -> Optional[datetime]:
+    def _parse_posted_date(
+        self, card: Tag, *, now: Optional[datetime] = None
+    ) -> Optional[datetime]:
         """
         Parse la date de publication depuis la carte.
 
@@ -466,9 +475,11 @@ class HelloWorkScraper(BaseScraper):
 
         # Parser le texte relatif
         text = card.get_text().lower()
-        return self._parse_relative_date(text)
+        return self._parse_relative_date(text, now=now)
 
-    def _parse_relative_date(self, text: str) -> Optional[datetime]:
+    def _parse_relative_date(
+        self, text: str, *, now: Optional[datetime] = None
+    ) -> Optional[datetime]:
         """
         Parse une date relative en français.
 
@@ -478,7 +489,7 @@ class HelloWorkScraper(BaseScraper):
         Returns:
             datetime ou None
         """
-        now = self._now()
+        now = now or self._now()
 
         patterns = [
             (
@@ -510,8 +521,36 @@ class HelloWorkScraper(BaseScraper):
     def _clean_rich_text(value: Any) -> Optional[str]:
         if not isinstance(value, str) or not value.strip():
             return None
-        text = BeautifulSoup(value, "lxml").get_text("\n", strip=True)
-        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        rich_text = BeautifulSoup(value, "lxml")
+        for line_break in rich_text.find_all("br"):
+            line_break.replace_with("\n")
+        for block in rich_text.find_all(
+            [
+                "address",
+                "article",
+                "aside",
+                "blockquote",
+                "div",
+                "footer",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+                "header",
+                "li",
+                "main",
+                "p",
+                "section",
+            ]
+        ):
+            block.insert_before("\n")
+            block.insert_after("\n")
+        text = rich_text.get_text()
+        text = re.sub(r"[^\S\n]+", " ", text)
+        text = re.sub(r" *\n *", "\n", text)
+        text = re.sub(r"\n+", "\n", text).strip()
         return text or None
 
     def _extract_json_ld_jobs(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
@@ -568,6 +607,14 @@ class HelloWorkScraper(BaseScraper):
             quantitative.get("maxValue")
         )
 
+    @staticmethod
+    def _structured_text(
+        value: Any, *, allow_single_value_list: bool = False
+    ) -> Optional[str]:
+        if allow_single_value_list and isinstance(value, list) and len(value) == 1:
+            value = value[0]
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
     def _parse_job_details(
         self, soup: BeautifulSoup, job_id: str, url: str
     ) -> Optional[JobOffer]:
@@ -593,10 +640,10 @@ class HelloWorkScraper(BaseScraper):
         )
         contract_element = soup.select_one("[itemprop='employmentType']")
 
-        title = str(structured.get("title") or "").strip() or (
+        title = self._structured_text(structured.get("title")) or (
             title_element.get_text(" ", strip=True) if title_element else ""
         )
-        company = str(structured_company or "").strip() or (
+        company = self._structured_text(structured_company) or (
             company_element.get_text(" ", strip=True)
             if company_element
             else "Non spécifié"
@@ -605,12 +652,14 @@ class HelloWorkScraper(BaseScraper):
             location_element.get_text(" ", strip=True) if location_element else "France"
         )
         description = self._clean_rich_text(structured.get("description")) or (
-            self._clean_rich_text(str(description_element)) if description_element else None
+            self._clean_rich_text(str(description_element))
+            if description_element
+            else None
         )
-        contract_value = structured.get("employmentType") or (
-            contract_element.get_text(" ", strip=True) if contract_element else ""
-        )
-        contract_type = self._map_contract_type(str(contract_value))
+        contract_value = self._structured_text(
+            structured.get("employmentType"), allow_single_value_list=True
+        ) or (contract_element.get_text(" ", strip=True) if contract_element else "")
+        contract_type = self._map_contract_type(contract_value)
 
         if salary_min is None and salary_max is None:
             salary_element = soup.select_one(

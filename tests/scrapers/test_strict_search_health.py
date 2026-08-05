@@ -55,7 +55,9 @@ def test_html_sources_reject_any_partially_parsed_page(
     monkeypatch.setattr(scraper, "_fetch_page", lambda _url: "<html></html>")
     monkeypatch.setattr(scraper, "_extract_job_cards", lambda _soup: [1, 2])
     parsed = iter([offer(scraper.name), None])
-    monkeypatch.setattr(scraper, "_parse_job_card", lambda _card: next(parsed))
+    monkeypatch.setattr(
+        scraper, "_parse_job_card", lambda _card, **_kwargs: next(parsed)
+    )
 
     iterator = scraper.search(SearchCriteria(max_results=10))
     assert next(iterator).id == f"{scraper.name}_1"
@@ -346,6 +348,34 @@ def test_hellowork_old_jobs_do_not_consume_the_result_cap(
         "hellowork_new",
     ]
     assert scraper.search_complete is False
+
+
+def test_hellowork_relative_boundary_uses_one_search_instant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    boundary = datetime(2026, 8, 5, 12, tzinfo=timezone.utc)
+    instants = iter([boundary, boundary.replace(microsecond=1)])
+    scraper = HelloWorkScraper(
+        {
+            "delay": 0,
+            "propagate_search_errors": True,
+            "clock": lambda: next(instants),
+        }
+    )
+    responses = iter(
+        [
+            hellowork_card("boundary").replace(
+                "</li>", "<span>il y a 30 jours</span></li>"
+            ),
+            "",
+        ]
+    )
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: next(responses))
+
+    jobs = list(scraper.search(SearchCriteria(max_results=2)))
+
+    assert [job.id for job in jobs] == ["hellowork_boundary"]
+    assert jobs[0].posted_at == datetime(2026, 7, 6, 12, tzinfo=timezone.utc)
 
 
 def test_hellowork_zero_max_results_remains_incomplete() -> None:

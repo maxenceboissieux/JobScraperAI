@@ -176,7 +176,7 @@ def test_hellowork_parses_current_jobposting_details(load_fixture) -> None:
     assert job.company == "Geser Best"
     assert job.location == "Nantes (44000)"
     assert job.description == (
-        "Les missions du poste\nConstruire le\nproduit\n.\n"
+        "Les missions du poste\nConstruire le produit.\n"
         "Vos missions :\nConcevoir\nTester"
     )
     assert job.contract_type == ContractType.CDI
@@ -201,6 +201,60 @@ def test_hellowork_malformed_jsonld_falls_back_to_legacy_html() -> None:
     assert job is not None
     assert job.title == "Legacy Python engineer"
     assert job.description == "Construire\nTester"
+
+
+def test_hellowork_malformed_structured_scalars_fall_back_to_html() -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+    soup = BeautifulSoup(
+        """
+        <script type="application/ld+json">
+          {
+            "@type": "JobPosting",
+            "title": {"value": "Titre invalide"},
+            "hiringOrganization": {"name": ["Entreprise invalide"]},
+            "employmentType": {"value": "CDD"},
+            "description": "<p>Description structurée</p>"
+          }
+        </script>
+        <h1>Legacy Python engineer</h1>
+        <div class="company">Legacy Company</div>
+        <span itemprop="employmentType">CDI</span>
+        """,
+        "lxml",
+    )
+
+    job = scraper._parse_job_details(
+        soup, "42", "https://www.hellowork.com/fr-fr/emplois/42.html"
+    )
+
+    assert job is not None
+    assert job.title == "Legacy Python engineer"
+    assert job.company == "Legacy Company"
+    assert job.contract_type == ContractType.CDI
+
+
+def test_hellowork_maps_one_structured_contract_value() -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+    soup = BeautifulSoup(
+        """
+        <script type="application/ld+json">
+          {
+            "@type": "JobPosting",
+            "title": "Python engineer",
+            "employmentType": ["CDD"],
+            "description": "<p>Construire le produit.</p>"
+          }
+        </script>
+        """,
+        "lxml",
+    )
+
+    job = scraper._parse_job_details(
+        soup, "42", "https://www.hellowork.com/fr-fr/emplois/42.html"
+    )
+
+    assert job is not None
+    assert job.contract_type == ContractType.CDD
 
 
 def test_hellowork_rejects_a_page_without_usable_detail_groups() -> None:
