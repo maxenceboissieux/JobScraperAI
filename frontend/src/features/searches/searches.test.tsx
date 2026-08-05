@@ -25,6 +25,7 @@ function savedSearch(overrides: Partial<SavedSearch> = {}): SavedSearch {
     companies: [],
     excludeCompanies: [],
     salaryMin: null,
+    maxResults: 500,
     sources: ["freework", "linkedin"],
     active: true,
     createdAt: "2026-08-03T08:00:00Z",
@@ -70,6 +71,7 @@ describe("gestion des recherches enregistrées", () => {
 
     expect(screen.getByRole("dialog", { name: "Nouvelle recherche enregistrée" })).toBeVisible();
     expect(screen.getByLabelText("Nom")).toHaveFocus();
+    expect(screen.getByLabelText("Offres maximum par source")).toHaveValue("500");
     await user.type(screen.getByLabelText("Nom"), "Backend remote");
     await user.type(
       screen.getByLabelText("Mots-clés"),
@@ -113,6 +115,7 @@ describe("gestion des recherches enregistrées", () => {
       experienceLevels: ["internship", "senior"],
       workplaceTypes: ["on_site", "remote"],
       sources: ["freework", "linkedin", "francetravail", "wttj"],
+      maxResults: 500,
       active: true,
     });
   });
@@ -179,6 +182,29 @@ describe("gestion des recherches enregistrées", () => {
     await waitFor(() => expect(received).toEqual({ title: null, radiusKm: null }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(new URLSearchParams(window.location.search).get("search")).toBe(current.id);
+  });
+
+  it("met à jour la limite d’offres par source sans inclure les autres champs", async () => {
+    let current = savedSearch({ maxResults: 250 });
+    let received: SearchUpdate | undefined;
+    server.use(
+      http.get(`${origin}/api/searches`, () => HttpResponse.json([current])),
+      http.patch(`${origin}/api/searches/${current.id}`, async ({ request }) => {
+        received = (await request.json()) as SearchUpdate;
+        current = { ...current, maxResults: received.maxResults ?? current.maxResults };
+        return HttpResponse.json(current);
+      }),
+    );
+    const { user } = renderApp(`/?search=${current.id}`);
+    await screen.findByRole("combobox", { name: "Recherche enregistrée" });
+
+    await user.click(screen.getByRole("button", { name: "Modifier la recherche" }));
+    await user.selectOptions(screen.getByLabelText("Offres maximum par source"), "1000");
+    await user.click(
+      screen.getByRole("button", { name: "Enregistrer les modifications" }),
+    );
+
+    await waitFor(() => expect(received).toEqual({ maxResults: 1000 }));
   });
 
   it("préserve les valeurs historiques inconnues lors d’une modification sans rapport", async () => {

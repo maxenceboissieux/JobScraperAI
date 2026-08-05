@@ -25,6 +25,7 @@ const SAVED_SEARCH: SavedSearch = {
   companies: [],
   excludeCompanies: [],
   salaryMin: null,
+  maxResults: 500,
   sources: ["freework"],
   active: true,
   createdAt: "2026-08-03T08:00:00Z",

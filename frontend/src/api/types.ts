@@ -43,6 +43,7 @@ export type SearchCreate = {
   companies?: string[];
   excludeCompanies?: string[];
   salaryMin?: number | null;
+  maxResults?: number;
   sources: SourceName[];
   active?: boolean;
 };
@@ -59,6 +60,7 @@ export type SearchUpdate = {
   companies?: string[];
   excludeCompanies?: string[];
   salaryMin?: number | null;
+  maxResults?: number;
   sources?: SourceName[];
   active?: boolean;
 };
@@ -76,6 +78,7 @@ export type SavedSearch = {
   companies: string[];
   excludeCompanies: string[];
   salaryMin: number | null;
+  maxResults: number;
   sources: string[];
   active: boolean;
   createdAt: string;

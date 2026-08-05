@@ -58,12 +58,15 @@ const SOURCE_CHOICES: readonly Choice<SourceName>[] = [
   { value: "adzuna", label: "Adzuna" },
 ];
 
+const RESULT_LIMIT_CHOICES = [100, 250, 500, 1000] as const;
+
 type EditorValues = {
   name: string;
   keywords: string;
   title: string;
   location: string;
   radiusKm: string;
+  maxResults: number;
   contractTypes: ContractType[];
   workplaceTypes: WorkplaceType[];
   experienceLevels: ExperienceLevel[];
@@ -79,6 +82,7 @@ const EDITOR_FIELDS: readonly DirtyField[] = [
   "title",
   "location",
   "radiusKm",
+  "maxResults",
   "contractTypes",
   "workplaceTypes",
   "experienceLevels",
@@ -114,6 +118,7 @@ function initialValues(search: SavedSearch | null): EditorValues {
       title: "",
       location: "France",
       radiusKm: "",
+      maxResults: 500,
       contractTypes: [],
       workplaceTypes: [],
       experienceLevels: [],
@@ -127,6 +132,7 @@ function initialValues(search: SavedSearch | null): EditorValues {
     title: search.title ?? "",
     location: search.location,
     radiusKm: search.radiusKm === null ? "" : String(search.radiusKm),
+    maxResults: search.maxResults,
     contractTypes: allowedValues(search.contractTypes, CONTRACT_CHOICES),
     workplaceTypes: allowedValues(search.workplaceTypes, WORKPLACE_CHOICES),
     experienceLevels: allowedValues(search.experienceLevels, EXPERIENCE_CHOICES),
@@ -287,6 +293,8 @@ export function SearchEditor({
         return values.location.trim() !== initial.location.trim();
       case "radiusKm":
         return parseRadius(values.radiusKm) !== parseRadius(initial.radiusKm);
+      case "maxResults":
+        return values.maxResults !== initial.maxResults;
       case "contractTypes":
       case "workplaceTypes":
       case "experienceLevels":
@@ -410,6 +418,7 @@ export function SearchEditor({
           title,
           location: values.location.trim(),
           radiusKm,
+          maxResults: values.maxResults,
           contractTypes: values.contractTypes,
           experienceLevels: values.experienceLevels,
           workplaceTypes: values.workplaceTypes,
@@ -434,6 +443,7 @@ export function SearchEditor({
     if (isFieldDirty("radiusKm") && radiusKm !== undefined) {
       patch.radiusKm = radiusKm;
     }
+    if (isFieldDirty("maxResults")) patch.maxResults = values.maxResults;
     if (isFieldDirty("contractTypes")) {
       patch.contractTypes = values.contractTypes;
     }
@@ -601,6 +611,25 @@ export function SearchEditor({
                   {errors.radiusKm}
                 </p>
               ) : null}
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="search-max-results">Offres maximum par source</label>
+              <select
+                id="search-max-results"
+                value={values.maxResults}
+                disabled={isSubmitting}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    maxResults: Number(event.currentTarget.value),
+                  }))
+                }
+              >
+                {RESULT_LIMIT_CHOICES.map((limit) => (
+                  <option value={limit} key={limit}>{limit.toLocaleString("fr-FR")}</option>
+                ))}
+              </select>
             </div>
           </div>
 

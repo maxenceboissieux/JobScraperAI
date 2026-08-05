@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier, Event, Lock, Timer, get_ident
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -432,7 +433,7 @@ def test_startup_upgrades_an_existing_revision_to_head(
             )
     finally:
         engine.dispose()
-    assert revision == "0002"
+    assert revision == "0003"
 
 
 def test_explicit_database_url_wins_over_conflicting_environment(
@@ -455,7 +456,7 @@ def test_explicit_database_url_wins_over_conflicting_environment(
             )
     finally:
         engine.dispose()
-    assert revision == "0002"
+    assert revision == "0003"
     assert not (tmp_path / "environment.db").exists()
 
 
@@ -477,7 +478,7 @@ def test_default_database_creates_parent_in_a_fresh_working_directory(
         with engine.connect() as connection:
             assert (
                 connection.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0002"
+                == "0003"
             )
     finally:
         engine.dispose()
@@ -494,22 +495,72 @@ def test_migration_reconciles_legacy_active_overlaps_before_unique_index(
     config.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(config, "0001")
     engine, factory = create_engine_and_session(database_url)
-    with factory() as session:
-        search = SavedSearchRepository(session).create(
-            name="Backend",
-            criteria=SearchCriteria(keywords=["backend"]),
-            sources=["freework"],
+    search_id, older_id, newer_id = (str(uuid4()) for _ in range(3))
+    older_created_at = datetime(2026, 8, 3, 8, tzinfo=timezone.utc)
+    newer_created_at = datetime(2026, 8, 3, 9, tzinfo=timezone.utc)
+    with engine.begin() as connection:
+        connection.execute(
+            text("""
+                INSERT INTO saved_searches (
+                    id, name, keywords, title, location, radius_km,
+                    contract_types, experience_levels, workplace_types,
+                    companies, exclude_companies, salary_min, sources,
+                    active, created_at, updated_at
+                ) VALUES (
+                    :id, :name, :keywords, NULL, :location, NULL,
+                    :contract_types, :experience_levels, :workplace_types,
+                    :companies, :exclude_companies, NULL, :sources,
+                    :active, :created_at, :updated_at
+                )
+                """),
+            {
+                "id": search_id,
+                "name": "Backend",
+                "keywords": '["backend"]',
+                "location": "France",
+                "contract_types": "[]",
+                "experience_levels": "[]",
+                "workplace_types": "[]",
+                "companies": "[]",
+                "exclude_companies": "[]",
+                "sources": '["freework"]',
+                "active": True,
+                "created_at": older_created_at,
+                "updated_at": older_created_at,
+            },
         )
-        older = SyncRunRepository(session).start(
-            search.id, requested_sources=["freework"]
+        search_pk = connection.scalar(
+            text("SELECT pk FROM saved_searches WHERE id = :id"), {"id": search_id}
         )
-        newer = SyncRunRepository(session).start(
-            search.id, requested_sources=["freework"], status="running"
+        connection.execute(
+            text("""
+                INSERT INTO sync_runs (
+                    id, saved_search_id, status, requested_sources,
+                    created_at, started_at, finished_at
+                ) VALUES (
+                    :id, :saved_search_id, :status, :requested_sources,
+                    :created_at, :started_at, NULL
+                )
+                """),
+            [
+                {
+                    "id": older_id,
+                    "saved_search_id": search_pk,
+                    "status": "pending",
+                    "requested_sources": '["freework"]',
+                    "created_at": older_created_at,
+                    "started_at": None,
+                },
+                {
+                    "id": newer_id,
+                    "saved_search_id": search_pk,
+                    "status": "running",
+                    "requested_sources": '["freework"]',
+                    "created_at": newer_created_at,
+                    "started_at": newer_created_at,
+                },
+            ],
         )
-        older.created_at = datetime(2026, 8, 3, 8, tzinfo=timezone.utc)
-        newer.created_at = datetime(2026, 8, 3, 9, tzinfo=timezone.utc)
-        session.commit()
-        older_id, newer_id = older.id, newer.id
 
     command.upgrade(config, "head")
     with factory() as session:
