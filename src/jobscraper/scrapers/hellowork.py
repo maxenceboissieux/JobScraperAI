@@ -1,9 +1,10 @@
 """Scraper pour HelloWork."""
 
+import json
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional
 from urllib.parse import quote_plus, urlencode
 
 from bs4 import BeautifulSoup, Tag
@@ -481,86 +482,133 @@ class HelloWorkScraper(BaseScraper):
 
         return None
 
+    @staticmethod
+    def _clean_rich_text(value: Any) -> Optional[str]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        text = BeautifulSoup(value, "lxml").get_text("\n", strip=True)
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text or None
+
+    def _extract_json_ld_jobs(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        jobs: list[dict[str, Any]] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, dict):
+                node_type = value.get("@type")
+                types = node_type if isinstance(node_type, list) else [node_type]
+                if "JobPosting" in types:
+                    jobs.append(value)
+                for child in value.values():
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+
+        for script in soup.select('script[type="application/ld+json"]'):
+            try:
+                walk(json.loads(script.string or script.get_text()))
+            except (TypeError, json.JSONDecodeError):
+                logger.debug("JSON-LD HelloWork invalide ignoré")
+        return jobs
+
+    @staticmethod
+    def _structured_location(value: Any) -> Optional[str]:
+        if isinstance(value, list):
+            value = value[0] if value else None
+        if not isinstance(value, dict):
+            return value.strip() if isinstance(value, str) and value.strip() else None
+        address = value.get("address", value)
+        if not isinstance(address, dict):
+            return None
+        locality = str(address.get("addressLocality") or "").strip()
+        postal_code = str(address.get("postalCode") or "").strip()
+        if locality and postal_code:
+            return f"{locality} ({postal_code})"
+        return locality or postal_code or None
+
+    @staticmethod
+    def _structured_salary(value: Any) -> tuple[Optional[float], Optional[float]]:
+        if not isinstance(value, dict):
+            return None, None
+        quantitative = value.get("value")
+        if not isinstance(quantitative, dict):
+            return None, None
+
+        def numeric(candidate: Any) -> Optional[float]:
+            if isinstance(candidate, bool) or not isinstance(candidate, (int, float)):
+                return None
+            return float(candidate)
+
+        return numeric(quantitative.get("minValue")), numeric(
+            quantitative.get("maxValue")
+        )
+
     def _parse_job_details(
         self, soup: BeautifulSoup, job_id: str, url: str
     ) -> Optional[JobOffer]:
-        """
-        Parse les détails complets d'une offre.
+        """Parse les détails complets d'une offre."""
+        structured_jobs = self._extract_json_ld_jobs(soup)
+        structured = structured_jobs[0] if structured_jobs else {}
+        organization = structured.get("hiringOrganization")
+        structured_company = (
+            organization.get("name") if isinstance(organization, dict) else organization
+        )
+        salary_min, salary_max = self._structured_salary(structured.get("baseSalary"))
 
-        Args:
-            soup: BeautifulSoup de la page de détails
-            job_id: ID de l'offre
-            url: URL de l'offre
+        title_element = soup.select_one("h1, [class*='job-title']")
+        company_element = soup.select_one(
+            "[class*='company'], [class*='entreprise'], [itemprop='hiringOrganization']"
+        )
+        location_element = soup.select_one(
+            "[class*='location'], [class*='lieu'], [itemprop='jobLocation']"
+        )
+        description_element = soup.select_one(
+            "[class*='description'], [itemprop='description'], "
+            ".job-description, #job-description"
+        )
+        contract_element = soup.select_one("[itemprop='employmentType']")
 
-        Returns:
-            JobOffer avec détails complets
-        """
-        try:
-            # Titre
-            title_elem = soup.select_one("h1, [class*='job-title']")
-            title = title_elem.get_text(strip=True) if title_elem else "Unknown"
+        title = str(structured.get("title") or "").strip() or (
+            title_element.get_text(" ", strip=True) if title_element else ""
+        )
+        company = str(structured_company or "").strip() or (
+            company_element.get_text(" ", strip=True)
+            if company_element
+            else "Non spécifié"
+        )
+        location = self._structured_location(structured.get("jobLocation")) or (
+            location_element.get_text(" ", strip=True) if location_element else "France"
+        )
+        description = self._clean_rich_text(structured.get("description")) or (
+            self._clean_rich_text(str(description_element)) if description_element else None
+        )
+        contract_value = structured.get("employmentType") or (
+            contract_element.get_text(" ", strip=True) if contract_element else ""
+        )
+        contract_type = self._map_contract_type(str(contract_value))
 
-            # Entreprise
-            company_elem = soup.select_one(
-                "[class*='company'], [class*='entreprise'], "
-                "[itemprop='hiringOrganization']"
+        if salary_min is None and salary_max is None:
+            salary_element = soup.select_one(
+                "[itemprop='baseSalary'], [class*='salary']"
             )
-            company = (
-                company_elem.get_text(strip=True) if company_elem else "Non spécifié"
-            )
-
-            # Localisation
-            location_elem = soup.select_one(
-                "[class*='location'], [class*='lieu'], " "[itemprop='jobLocation']"
-            )
-            location = location_elem.get_text(strip=True) if location_elem else "France"
-
-            # Description
-            description_elem = soup.select_one(
-                "[class*='description'], [itemprop='description'], "
-                ".job-description, #job-description"
-            )
-            description = (
-                description_elem.get_text(strip=True) if description_elem else None
-            )
-
-            # Type de contrat
-            contract_type = None
-            contract_elem = soup.select_one("[itemprop='employmentType']")
-            if contract_elem:
-                contract_text = contract_elem.get_text().lower()
-                if "cdi" in contract_text:
-                    contract_type = ContractType.CDI
-                elif "cdd" in contract_text:
-                    contract_type = ContractType.CDD
-                elif "stage" in contract_text:
-                    contract_type = ContractType.STAGE
-                elif "alternance" in contract_text:
-                    contract_type = ContractType.ALTERNANCE
-
-            # Salaire
-            salary_min = None
-            salary_max = None
-            salary_elem = soup.select_one("[itemprop='baseSalary'], [class*='salary']")
-            if salary_elem:
-                salary_text = salary_elem.get_text()
-                salary_match = re.search(r"(\d[\d\s]*)\s*(?:€|EUR)", salary_text)
+            if salary_element:
+                salary_match = re.search(
+                    r"(\d[\d\s]*)\s*(?:€|EUR)", salary_element.get_text(" ", strip=True)
+                )
                 if salary_match:
                     salary_min = float(salary_match.group(1).replace(" ", ""))
-
-            return JobOffer(
-                id=f"hellowork_{job_id}",
-                source=self.name,
-                url=url,
-                title=title,
-                company=company,
-                location=location,
-                description=description,
-                contract_type=contract_type,
-                salary_min=salary_min,
-                salary_max=salary_max,
-            )
-
-        except Exception as e:
-            logger.error(f"Erreur parsing détails: {e}")
+        if not title or (not description and salary_min is None and salary_max is None):
             return None
+        return JobOffer(
+            id=f"hellowork_{job_id}",
+            source=self.name,
+            url=url,
+            title=title,
+            company=company,
+            location=location,
+            description=description,
+            contract_type=contract_type,
+            salary_min=salary_min,
+            salary_max=salary_max,
+        )

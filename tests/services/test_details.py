@@ -15,6 +15,7 @@ from jobscraper.db.session import create_engine_and_session
 from jobscraper.models.job import JobOffer, SearchCriteria
 from jobscraper.repositories.jobs import JobRepository
 from jobscraper.scrapers.base import BaseScraper
+from jobscraper.scrapers.hellowork import HelloWorkScraper
 from jobscraper.scrapers.linkedin import LinkedInScraper
 from jobscraper.services.details import (
     JobDetailsService,
@@ -940,3 +941,28 @@ def test_get_without_active_listing_is_unavailable_without_scraper_creation(
         service.get(job.id)
 
     assert registry.created == []
+
+
+def test_hellowork_jsonld_details_refresh_the_empty_canonical_job(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = JobRepository(session).upsert_listing(
+        listing_offer("hellowork_78679641", source="hellowork"), seen_at=NOW
+    )
+    fixture = (
+        Path(__file__).parents[1] / "fixtures" / "hellowork" / "details.html"
+    ).read_text(encoding="utf-8")
+    scraper = HelloWorkScraper({"delay": 0})
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: fixture)
+    service = JobDetailsService(
+        session,
+        registry=FixedRegistry("hellowork", scraper),
+        clock=Clock(),
+    )
+
+    result = service.get(job.id)
+
+    assert result.cache_state == "refreshed"
+    assert result.job.description is not None
+    assert "Les missions du poste" in result.job.description
+    assert (result.job.salary_min, result.job.salary_max) == (38_000, 42_000)

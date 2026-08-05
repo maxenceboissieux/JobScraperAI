@@ -138,6 +138,60 @@ def test_hellowork_repeats_current_contract_filter_values() -> None:
     assert query["c"] == ["CDI", "CDD", "Freelance"]
 
 
+def test_hellowork_parses_current_jobposting_details(load_fixture) -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+    soup = BeautifulSoup(load_fixture("hellowork/details.html"), "lxml")
+
+    job = scraper._parse_job_details(
+        soup,
+        "78679641",
+        "https://www.hellowork.com/fr-fr/emplois/78679641.html",
+    )
+
+    assert job is not None
+    assert job.title == "Développeur Fullstack Java - React Confirmé H/F"
+    assert job.company == "Geser Best"
+    assert job.location == "Nantes (44000)"
+    assert job.description == (
+        "Les missions du poste\nConstruire le\nproduit\n.\n"
+        "Vos missions :\nConcevoir\nTester"
+    )
+    assert job.contract_type == ContractType.CDI
+    assert (job.salary_min, job.salary_max) == (38_000, 42_000)
+
+
+def test_hellowork_malformed_jsonld_falls_back_to_legacy_html() -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+    soup = BeautifulSoup(
+        """
+        <script type="application/ld+json">{invalid</script>
+        <h1>Legacy Python engineer</h1>
+        <div itemprop="description"><p>Construire</p><p>Tester</p></div>
+        """,
+        "lxml",
+    )
+
+    job = scraper._parse_job_details(
+        soup, "42", "https://www.hellowork.com/fr-fr/emplois/42.html"
+    )
+
+    assert job is not None
+    assert job.title == "Legacy Python engineer"
+    assert job.description == "Construire\nTester"
+
+
+def test_hellowork_rejects_a_page_without_usable_detail_groups() -> None:
+    scraper = HelloWorkScraper({"delay": 0})
+    soup = BeautifulSoup("<h1>Page générique</h1>", "lxml")
+
+    assert (
+        scraper._parse_job_details(
+            soup, "42", "https://www.hellowork.com/fr-fr/emplois/42.html"
+        )
+        is None
+    )
+
+
 @pytest.mark.parametrize(
     ("contract_label", "expected_contract_type"),
     [
