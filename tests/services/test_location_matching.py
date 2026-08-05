@@ -81,6 +81,11 @@ def test_snapshot_is_valid_json_package_data() -> None:
     assert payload["reference_date"] == "2026-01-01"
 
 
+def test_alias_index_is_immutable() -> None:
+    with pytest.raises(TypeError):
+        location_matching._BY_ALIAS["test"] = location_matching._METROPOLES[0]
+
+
 @pytest.mark.parametrize(
     ("requested", "candidate"),
     [

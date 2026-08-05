@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from importlib import resources
+from types import MappingProxyType
 from typing import Any
 
 from jobscraper.services.normalization import normalize_location
@@ -100,11 +101,13 @@ def _load_metropolises() -> tuple[Metropole, ...]:
 
 _METROPOLES = _load_metropolises()
 
-_BY_ALIAS = {
-    alias: metropole
-    for metropole in _METROPOLES
-    for alias in metropole.activation_aliases
-}
+_BY_ALIAS = MappingProxyType(
+    {
+        alias: metropole
+        for metropole in _METROPOLES
+        for alias in metropole.activation_aliases
+    }
+)
 _ARRONDISSEMENT = re.compile(
     r"^(paris|lyon|marseille)\s+([0-9]{1,2})(?:er|e|eme)?(?:\s+arrondissement)?$"
 )
