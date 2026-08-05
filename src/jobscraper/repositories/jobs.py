@@ -16,6 +16,7 @@ from jobscraper.db.models import (
     SourceListing,
 )
 from jobscraper.models.job import JobOffer
+from jobscraper.services.location_matching import location_matches
 from jobscraper.services.normalization import normalize_company
 
 
@@ -253,9 +254,9 @@ class JobRepository:
                 " ".join(filter(None, (job.title, job.company, job.description)))
             ):
                 return False
-            if locations and _normalise(job.location) not in {
-                _normalise(location) for location in locations
-            }:
+            if locations and not any(
+                location_matches(job.location, requested) for requested in locations
+            ):
                 return False
             if contracts and _value(job.contract_type) not in {
                 _value(value) for value in contracts

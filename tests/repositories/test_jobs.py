@@ -168,6 +168,44 @@ def test_job_filters_association_and_pagination_use_persisted_offers(
     ] == [matching.id, newer.id]
 
 
+def test_location_filter_expands_center_alias_and_keeps_member_filter_municipal(
+    session: Session,
+) -> None:
+    jobs = JobRepository(session)
+    lyon = jobs.upsert_listing(offer("lyon", location="Lyon - 69"), seen_at=NOW)
+    villeurbanne = jobs.upsert_listing(
+        offer("villeurbanne", location="Villeurbanne"), seen_at=NOW
+    )
+    bron = jobs.upsert_listing(offer("bron", location="Bron"), seen_at=NOW)
+    outside = jobs.upsert_listing(
+        offer("outside", location="Villefranche-sur-Saône"), seen_at=NOW
+    )
+
+    assert {job.id for job in jobs.list_jobs(locations=["Lyon"])} == {
+        lyon.id,
+        villeurbanne.id,
+        bron.id,
+    }
+    assert [job.id for job in jobs.list_jobs(locations=["Villeurbanne"])] == [
+        villeurbanne.id
+    ]
+    assert outside.id not in {
+        job.id for job in jobs.list_jobs(locations=["Métropole de Lyon"])
+    }
+
+
+def test_multiple_location_filters_keep_or_semantics(session: Session) -> None:
+    jobs = JobRepository(session)
+    bron = jobs.upsert_listing(offer("bron-or", location="Bron"), seen_at=NOW)
+    rennes = jobs.upsert_listing(offer("rennes-or", location="Rennes"), seen_at=NOW)
+    excluded = jobs.upsert_listing(offer("dijon-or", location="Dijon"), seen_at=NOW)
+
+    result = jobs.list_jobs(locations=["Lyon", "Rennes"])
+
+    assert {job.id for job in result} == {bron.id, rennes.id}
+    assert excluded.id not in {job.id for job in result}
+
+
 def test_source_sync_results_are_updated_without_hiding_existing_jobs(
     session: Session,
 ) -> None:

@@ -103,6 +103,29 @@ def test_job_cards_apply_period_source_and_saved_search_filters(
     assert [item["id"] for item in response.json()["items"]] == [recent_id]
 
 
+def test_location_query_expands_lyon_metropole(
+    client: TestClient, session: Session
+) -> None:
+    jobs = JobRepository(session)
+    villeurbanne = jobs.upsert_listing(
+        offer("metro-villeurbanne", location="Villeurbanne"), seen_at=utc_now()
+    )
+    jobs.upsert_listing(
+        offer("metro-outside", location="Villefranche-sur-Saône"),
+        seen_at=utc_now(),
+    )
+    session.commit()
+
+    response = client.get(
+        "/api/jobs",
+        params={"period": "all", "location": "Lyon"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert [item["id"] for item in response.json()["items"]] == [villeurbanne.id]
+
+
 def test_job_pagination_keeps_total_and_card_links_consistent(
     client: TestClient, session: Session
 ) -> None:
