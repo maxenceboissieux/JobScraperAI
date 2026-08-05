@@ -70,6 +70,8 @@ def _load_metropolises() -> tuple[Metropole, ...]:
         codes: set[str] = set()
         communes: set[str] = set()
         for row in commune_rows:
+            if not isinstance(row, dict):
+                raise LocationReferenceError(f"Metropole {key} has an invalid commune")
             code = str(row.get("insee_code", ""))
             name = normalize_location(str(row.get("name", "")))
             if not _INSEE_CODE.fullmatch(code.upper()) or not name:

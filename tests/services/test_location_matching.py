@@ -60,6 +60,20 @@ def test_reference_validation_rejects_duplicate_aliases(
         location_matching._load_metropolises()
 
 
+def test_reference_validation_rejects_non_object_commune_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resource = resources.files("jobscraper.data").joinpath("french_metropolises.json")
+    payload = json.loads(resource.read_text(encoding="utf-8"))
+    payload["groups"][0]["communes"][0] = None
+    monkeypatch.setattr(location_matching, "_read_payload", lambda: payload)
+
+    with pytest.raises(
+        location_matching.LocationReferenceError, match="invalid commune"
+    ):
+        location_matching._load_metropolises()
+
+
 def test_snapshot_is_valid_json_package_data() -> None:
     resource = resources.files("jobscraper.data").joinpath("french_metropolises.json")
     payload = json.loads(resource.read_text(encoding="utf-8"))
