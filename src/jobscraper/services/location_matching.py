@@ -99,3 +99,34 @@ def _load_metropolises() -> tuple[Metropole, ...]:
 
 
 _METROPOLES = _load_metropolises()
+
+_BY_ALIAS = {
+    alias: metropole
+    for metropole in _METROPOLES
+    for alias in metropole.activation_aliases
+}
+_ARRONDISSEMENT = re.compile(
+    r"^(paris|lyon|marseille)\s+([0-9]{1,2})(?:er|e|eme)?(?:\s+arrondissement)?$"
+)
+_ARRONDISSEMENT_MAX = {"paris": 20, "lyon": 9, "marseille": 16}
+
+
+def _municipality_key(value: str) -> str:
+    normalized = normalize_location(value)
+    match = _ARRONDISSEMENT.fullmatch(normalized)
+    if match is None:
+        return normalized
+    city, raw_number = match.groups()
+    number = int(raw_number)
+    return city if 1 <= number <= _ARRONDISSEMENT_MAX[city] else normalized
+
+
+def location_matches(candidate: str, requested: str) -> bool:
+    """Match one job location against one municipal or metropolitan request."""
+
+    requested_key = _municipality_key(requested)
+    candidate_key = _municipality_key(candidate)
+    metropole = _BY_ALIAS.get(requested_key)
+    if metropole is None:
+        return candidate_key == requested_key
+    return candidate_key in metropole.communes

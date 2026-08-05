@@ -6,6 +6,7 @@ from importlib import resources
 import pytest
 
 from jobscraper.services import location_matching
+from jobscraper.services.location_matching import location_matches
 
 EXPECTED_COUNTS = {
     "grand_paris": 130,
@@ -78,3 +79,72 @@ def test_snapshot_is_valid_json_package_data() -> None:
     resource = resources.files("jobscraper.data").joinpath("french_metropolises.json")
     payload = json.loads(resource.read_text(encoding="utf-8"))
     assert payload["reference_date"] == "2026-01-01"
+
+
+@pytest.mark.parametrize(
+    ("requested", "candidate"),
+    [
+        ("Paris", "Boulogne-Billancourt - 92"),
+        ("Métropole du Grand Paris", "Saint-Denis, France"),
+        ("Marseille", "Aix-en-Provence - 13"),
+        ("Aix-Marseille", "Aubagne"),
+        ("Lyon", "Villeurbanne - 69"),
+        ("Grand Lyon", "Bron"),
+        ("Lille", "Roubaix"),
+        ("Métropole Européenne de Lille", "Tourcoing"),
+        ("Bordeaux", "Mérignac"),
+        ("Toulouse", "Blagnac"),
+        ("Nantes", "Saint-Herblain"),
+        ("Nice", "Cagnes-sur-Mer"),
+        ("Montpellier", "Lattes"),
+        ("Strasbourg", "Schiltigheim"),
+    ],
+)
+def test_city_centers_and_aliases_expand_to_official_metropole(
+    requested: str, candidate: str
+) -> None:
+    assert location_matches(candidate, requested)
+
+
+@pytest.mark.parametrize(
+    ("requested", "candidate"),
+    [
+        ("Paris", "Melun"),
+        ("Marseille", "Avignon"),
+        ("Lyon", "Villefranche-sur-Saône"),
+        ("Villeurbanne", "Bron"),
+        ("Roubaix", "Lille"),
+        ("Unknownville", "Paris"),
+    ],
+)
+def test_metropole_matching_does_not_broaden_unrecognized_or_member_tags(
+    requested: str, candidate: str
+) -> None:
+    assert not location_matches(candidate, requested)
+
+
+@pytest.mark.parametrize(
+    ("requested", "candidate"),
+    [
+        ("lyon", "Lyon 7e - 69"),
+        ("Métropole de Lyon", "Lyon 7ème arrondissement, France"),
+        ("Paris", "Paris 20e arrondissement - 75"),
+        ("Marseille", "Marseille 16ème (13)"),
+        ("MÉTROPOLE NICE CÔTE D'AZUR", "Nice - 06"),
+        ("Villeurbanne", "VILLEURBANNE, France"),
+    ],
+)
+def test_location_matching_handles_arrondissements_and_normalization(
+    requested: str, candidate: str
+) -> None:
+    assert location_matches(candidate, requested)
+
+
+@pytest.mark.parametrize(
+    ("requested", "candidate"),
+    [("Lyon", "Lyon 10e"), ("Marseille", "Marseille 17e"), ("Paris", "Paris 21e")],
+)
+def test_out_of_range_arrondissements_are_not_collapsed(
+    requested: str, candidate: str
+) -> None:
+    assert not location_matches(candidate, requested)
