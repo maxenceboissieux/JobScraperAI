@@ -3,7 +3,7 @@
 import json
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, Optional
 from urllib.parse import quote_plus, urlencode
 
@@ -26,6 +26,7 @@ class HelloWorkScraper(BaseScraper):
 
     name = "hellowork"
     base_url = "https://www.hellowork.com"
+    MAX_LISTING_AGE = timedelta(days=30)
 
     # Mapping des types de contrat HelloWork
     CONTRACT_MAPPING = {
@@ -54,6 +55,23 @@ class HelloWorkScraper(BaseScraper):
         """
         super().__init__(config)
         self.delay_between_requests = config.get("delay", 2) if config else 2
+
+    def _now(self) -> datetime:
+        clock = self.config.get("clock")
+        value = clock() if callable(clock) else datetime.now(timezone.utc)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def _is_within_recency_window(self, posted_at: Optional[datetime]) -> bool:
+        if posted_at is None:
+            return True
+        normalized = (
+            posted_at.replace(tzinfo=timezone.utc)
+            if posted_at.tzinfo is None
+            else posted_at.astimezone(timezone.utc)
+        )
+        return normalized >= self._now() - self.MAX_LISTING_AGE
 
     def _get_headers(self) -> dict:
         """
@@ -130,6 +148,13 @@ class HelloWorkScraper(BaseScraper):
                                 continue
 
                             seen_ids.add(job.id)
+                            if not self._is_within_recency_window(job.posted_at):
+                                logger.debug(
+                                    "Offre HelloWork de plus de 30 jours ignorée: {}",
+                                    job.id,
+                                )
+                                continue
+
                             jobs_found += 1
                             yield job
 
@@ -227,7 +252,7 @@ class HelloWorkScraper(BaseScraper):
         """
         base = f"{self.base_url}/fr-fr/emploi/recherche.html"
 
-        params: dict[str, str | list[str]] = {}
+        params: dict[str, str | list[str]] = {"st": "date", "d": "30"}
 
         if query is None:
             query = self._search_queries(criteria)[0]
@@ -247,8 +272,7 @@ class HelloWorkScraper(BaseScraper):
             if contract_codes:
                 params["c"] = list(filter(None, contract_codes))
 
-        # Date de publication
-        if criteria.date_posted and criteria.date_posted != DatePosted.ANY_TIME:
+        if criteria.date_posted not in (None, DatePosted.ANY_TIME):
             date_code = self.DATE_POSTED_MAPPING.get(criteria.date_posted)
             if date_code:
                 params["d"] = date_code
@@ -454,7 +478,7 @@ class HelloWorkScraper(BaseScraper):
         Returns:
             datetime ou None
         """
-        now = datetime.now()
+        now = self._now()
 
         patterns = [
             (

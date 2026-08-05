@@ -138,6 +138,29 @@ def test_hellowork_repeats_current_contract_filter_values() -> None:
     assert query["c"] == ["CDI", "CDD", "Freelance"]
 
 
+@pytest.mark.parametrize(
+    ("date_posted", "expected_days"),
+    [
+        (None, "30"),
+        (DatePosted.ANY_TIME, "30"),
+        (DatePosted.PAST_MONTH, "30"),
+        (DatePosted.PAST_WEEK, "7"),
+        (DatePosted.PAST_24H, "1"),
+    ],
+)
+def test_hellowork_always_requests_newest_first_with_a_30_day_ceiling(
+    date_posted: DatePosted | None, expected_days: str
+) -> None:
+    criteria = SearchCriteria(date_posted=date_posted)
+
+    query = parse_qs(
+        urlparse(HelloWorkScraper({"delay": 0})._build_search_url(criteria)).query
+    )
+
+    assert query["st"] == ["date"]
+    assert query["d"] == [expected_days]
+
+
 def test_hellowork_parses_current_jobposting_details(load_fixture) -> None:
     scraper = HelloWorkScraper({"delay": 0})
     soup = BeautifulSoup(load_fixture("hellowork/details.html"), "lxml")

@@ -1,5 +1,6 @@
 """Offline contracts for authoritative full-scan detection."""
 
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -33,12 +34,14 @@ def offer(source: str, suffix: str = "1") -> JobOffer:
     )
 
 
-def hellowork_card(identifier: str) -> str:
+def hellowork_card(identifier: str, posted_at: str | None = None) -> str:
+    time_html = f'<time datetime="{posted_at}"></time>' if posted_at else ""
     return (
         f'<li data-id-storage-item-id="{identifier}">'
         f'<input name="title" value="Offer {identifier}">'
         f'<input name="company" value="Acme">'
-        f'<a href="/fr-fr/emplois/{identifier}.html">Offer</a></li>'
+        f'<a href="/fr-fr/emplois/{identifier}.html">Offer</a>'
+        f"{time_html}</li>"
     )
 
 
@@ -314,6 +317,37 @@ def test_hellowork_applies_max_results_across_queries(
     assert scraper.search_complete is False
 
 
+def test_hellowork_old_jobs_do_not_consume_the_result_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 5, 12, tzinfo=timezone.utc)
+    scraper = HelloWorkScraper(
+        {
+            "delay": 0,
+            "propagate_search_errors": True,
+            "clock": lambda: now,
+        }
+    )
+    responses = iter(
+        [
+            hellowork_card("old", "2026-07-05T11:59:59Z")
+            + hellowork_card("undated"),
+            hellowork_card("boundary", "2026-07-06T12:00:00Z")
+            + hellowork_card("new", "2026-08-05T11:00:00Z"),
+        ]
+    )
+    monkeypatch.setattr(scraper, "_fetch_page", lambda _url: next(responses))
+
+    jobs = list(scraper.search(SearchCriteria(max_results=3)))
+
+    assert [job.id for job in jobs] == [
+        "hellowork_undated",
+        "hellowork_boundary",
+        "hellowork_new",
+    ]
+    assert scraper.search_complete is False
+
+
 def test_hellowork_zero_max_results_remains_incomplete() -> None:
     scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
 
@@ -364,7 +398,7 @@ def test_hellowork_continues_a_later_query_past_global_overlap(
 def test_hellowork_uses_question_mark_for_page_two_without_search_parameters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A parameter-free first-page URL keeps pagination fetchable."""
+    """Mandatory parameters keep pagination fetchable."""
 
     scraper = HelloWorkScraper({"delay": 0, "propagate_search_errors": True})
     fetched: list[str] = []
@@ -378,9 +412,11 @@ def test_hellowork_uses_question_mark_for_page_two_without_search_parameters(
 
     jobs = list(scraper.search(SearchCriteria(location="", max_results=10)))
 
-    base_url = "https://www.hellowork.com/fr-fr/emploi/recherche.html"
+    base_url = (
+        "https://www.hellowork.com/fr-fr/emploi/recherche.html?st=date&d=30"
+    )
     assert [job.id for job in jobs] == ["hellowork_1"]
-    assert fetched == [base_url, f"{base_url}?p=2"]
+    assert fetched == [base_url, f"{base_url}&p=2"]
     assert scraper.search_complete is True
 
 
