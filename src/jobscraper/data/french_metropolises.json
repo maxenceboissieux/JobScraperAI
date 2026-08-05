@@ -1,0 +1,2466 @@
+{
+  "reference_date": "2026-01-01",
+  "groups": [
+    {
+      "key": "grand_paris",
+      "official_name": "Métropole du Grand Paris",
+      "city_center": "Paris",
+      "activation_aliases": [
+        "Paris",
+        "Grand Paris",
+        "Métropole du Grand Paris"
+      ],
+      "epci_code": "200054781",
+      "source_url": "https://geo.api.gouv.fr/epcis/200054781/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/200054781/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "75056",
+          "name": "Paris"
+        },
+        {
+          "insee_code": "91027",
+          "name": "Athis-Mons"
+        },
+        {
+          "insee_code": "91326",
+          "name": "Juvisy-sur-Orge"
+        },
+        {
+          "insee_code": "91432",
+          "name": "Morangis"
+        },
+        {
+          "insee_code": "91479",
+          "name": "Paray-Vieille-Poste"
+        },
+        {
+          "insee_code": "91589",
+          "name": "Savigny-sur-Orge"
+        },
+        {
+          "insee_code": "91687",
+          "name": "Viry-Châtillon"
+        },
+        {
+          "insee_code": "92002",
+          "name": "Antony"
+        },
+        {
+          "insee_code": "92004",
+          "name": "Asnières-sur-Seine"
+        },
+        {
+          "insee_code": "92007",
+          "name": "Bagneux"
+        },
+        {
+          "insee_code": "92009",
+          "name": "Bois-Colombes"
+        },
+        {
+          "insee_code": "92012",
+          "name": "Boulogne-Billancourt"
+        },
+        {
+          "insee_code": "92014",
+          "name": "Bourg-la-Reine"
+        },
+        {
+          "insee_code": "92019",
+          "name": "Châtenay-Malabry"
+        },
+        {
+          "insee_code": "92020",
+          "name": "Châtillon"
+        },
+        {
+          "insee_code": "92022",
+          "name": "Chaville"
+        },
+        {
+          "insee_code": "92023",
+          "name": "Clamart"
+        },
+        {
+          "insee_code": "92024",
+          "name": "Clichy"
+        },
+        {
+          "insee_code": "92025",
+          "name": "Colombes"
+        },
+        {
+          "insee_code": "92026",
+          "name": "Courbevoie"
+        },
+        {
+          "insee_code": "92032",
+          "name": "Fontenay-aux-Roses"
+        },
+        {
+          "insee_code": "92033",
+          "name": "Garches"
+        },
+        {
+          "insee_code": "92035",
+          "name": "La Garenne-Colombes"
+        },
+        {
+          "insee_code": "92036",
+          "name": "Gennevilliers"
+        },
+        {
+          "insee_code": "92040",
+          "name": "Issy-les-Moulineaux"
+        },
+        {
+          "insee_code": "92044",
+          "name": "Levallois-Perret"
+        },
+        {
+          "insee_code": "92046",
+          "name": "Malakoff"
+        },
+        {
+          "insee_code": "92047",
+          "name": "Marnes-la-Coquette"
+        },
+        {
+          "insee_code": "92048",
+          "name": "Meudon"
+        },
+        {
+          "insee_code": "92049",
+          "name": "Montrouge"
+        },
+        {
+          "insee_code": "92050",
+          "name": "Nanterre"
+        },
+        {
+          "insee_code": "92051",
+          "name": "Neuilly-sur-Seine"
+        },
+        {
+          "insee_code": "92060",
+          "name": "Le Plessis-Robinson"
+        },
+        {
+          "insee_code": "92062",
+          "name": "Puteaux"
+        },
+        {
+          "insee_code": "92063",
+          "name": "Rueil-Malmaison"
+        },
+        {
+          "insee_code": "92064",
+          "name": "Saint-Cloud"
+        },
+        {
+          "insee_code": "92071",
+          "name": "Sceaux"
+        },
+        {
+          "insee_code": "92072",
+          "name": "Sèvres"
+        },
+        {
+          "insee_code": "92073",
+          "name": "Suresnes"
+        },
+        {
+          "insee_code": "92075",
+          "name": "Vanves"
+        },
+        {
+          "insee_code": "92076",
+          "name": "Vaucresson"
+        },
+        {
+          "insee_code": "92077",
+          "name": "Ville-d'Avray"
+        },
+        {
+          "insee_code": "92078",
+          "name": "Villeneuve-la-Garenne"
+        },
+        {
+          "insee_code": "93001",
+          "name": "Aubervilliers"
+        },
+        {
+          "insee_code": "93005",
+          "name": "Aulnay-sous-Bois"
+        },
+        {
+          "insee_code": "93006",
+          "name": "Bagnolet"
+        },
+        {
+          "insee_code": "93007",
+          "name": "Le Blanc-Mesnil"
+        },
+        {
+          "insee_code": "93008",
+          "name": "Bobigny"
+        },
+        {
+          "insee_code": "93010",
+          "name": "Bondy"
+        },
+        {
+          "insee_code": "93013",
+          "name": "Le Bourget"
+        },
+        {
+          "insee_code": "93014",
+          "name": "Clichy-sous-Bois"
+        },
+        {
+          "insee_code": "93015",
+          "name": "Coubron"
+        },
+        {
+          "insee_code": "93027",
+          "name": "La Courneuve"
+        },
+        {
+          "insee_code": "93029",
+          "name": "Drancy"
+        },
+        {
+          "insee_code": "93030",
+          "name": "Dugny"
+        },
+        {
+          "insee_code": "93031",
+          "name": "Épinay-sur-Seine"
+        },
+        {
+          "insee_code": "93032",
+          "name": "Gagny"
+        },
+        {
+          "insee_code": "93033",
+          "name": "Gournay-sur-Marne"
+        },
+        {
+          "insee_code": "93039",
+          "name": "L'Île-Saint-Denis"
+        },
+        {
+          "insee_code": "93045",
+          "name": "Les Lilas"
+        },
+        {
+          "insee_code": "93046",
+          "name": "Livry-Gargan"
+        },
+        {
+          "insee_code": "93047",
+          "name": "Montfermeil"
+        },
+        {
+          "insee_code": "93048",
+          "name": "Montreuil"
+        },
+        {
+          "insee_code": "93049",
+          "name": "Neuilly-Plaisance"
+        },
+        {
+          "insee_code": "93050",
+          "name": "Neuilly-sur-Marne"
+        },
+        {
+          "insee_code": "93051",
+          "name": "Noisy-le-Grand"
+        },
+        {
+          "insee_code": "93053",
+          "name": "Noisy-le-Sec"
+        },
+        {
+          "insee_code": "93055",
+          "name": "Pantin"
+        },
+        {
+          "insee_code": "93057",
+          "name": "Les Pavillons-sous-Bois"
+        },
+        {
+          "insee_code": "93061",
+          "name": "Le Pré-Saint-Gervais"
+        },
+        {
+          "insee_code": "93062",
+          "name": "Le Raincy"
+        },
+        {
+          "insee_code": "93063",
+          "name": "Romainville"
+        },
+        {
+          "insee_code": "93064",
+          "name": "Rosny-sous-Bois"
+        },
+        {
+          "insee_code": "93066",
+          "name": "Saint-Denis"
+        },
+        {
+          "insee_code": "93070",
+          "name": "Saint-Ouen-sur-Seine"
+        },
+        {
+          "insee_code": "93071",
+          "name": "Sevran"
+        },
+        {
+          "insee_code": "93072",
+          "name": "Stains"
+        },
+        {
+          "insee_code": "93073",
+          "name": "Tremblay-en-France"
+        },
+        {
+          "insee_code": "93074",
+          "name": "Vaujours"
+        },
+        {
+          "insee_code": "93077",
+          "name": "Villemomble"
+        },
+        {
+          "insee_code": "93078",
+          "name": "Villepinte"
+        },
+        {
+          "insee_code": "93079",
+          "name": "Villetaneuse"
+        },
+        {
+          "insee_code": "94001",
+          "name": "Ablon-sur-Seine"
+        },
+        {
+          "insee_code": "94002",
+          "name": "Alfortville"
+        },
+        {
+          "insee_code": "94003",
+          "name": "Arcueil"
+        },
+        {
+          "insee_code": "94004",
+          "name": "Boissy-Saint-Léger"
+        },
+        {
+          "insee_code": "94011",
+          "name": "Bonneuil-sur-Marne"
+        },
+        {
+          "insee_code": "94015",
+          "name": "Bry-sur-Marne"
+        },
+        {
+          "insee_code": "94016",
+          "name": "Cachan"
+        },
+        {
+          "insee_code": "94017",
+          "name": "Champigny-sur-Marne"
+        },
+        {
+          "insee_code": "94018",
+          "name": "Charenton-le-Pont"
+        },
+        {
+          "insee_code": "94019",
+          "name": "Chennevières-sur-Marne"
+        },
+        {
+          "insee_code": "94021",
+          "name": "Chevilly-Larue"
+        },
+        {
+          "insee_code": "94022",
+          "name": "Choisy-le-Roi"
+        },
+        {
+          "insee_code": "94028",
+          "name": "Créteil"
+        },
+        {
+          "insee_code": "94033",
+          "name": "Fontenay-sous-Bois"
+        },
+        {
+          "insee_code": "94034",
+          "name": "Fresnes"
+        },
+        {
+          "insee_code": "94037",
+          "name": "Gentilly"
+        },
+        {
+          "insee_code": "94038",
+          "name": "L'Haÿ-les-Roses"
+        },
+        {
+          "insee_code": "94041",
+          "name": "Ivry-sur-Seine"
+        },
+        {
+          "insee_code": "94042",
+          "name": "Joinville-le-Pont"
+        },
+        {
+          "insee_code": "94043",
+          "name": "Le Kremlin-Bicêtre"
+        },
+        {
+          "insee_code": "94044",
+          "name": "Limeil-Brévannes"
+        },
+        {
+          "insee_code": "94046",
+          "name": "Maisons-Alfort"
+        },
+        {
+          "insee_code": "94047",
+          "name": "Mandres-les-Roses"
+        },
+        {
+          "insee_code": "94048",
+          "name": "Marolles-en-Brie"
+        },
+        {
+          "insee_code": "94052",
+          "name": "Nogent-sur-Marne"
+        },
+        {
+          "insee_code": "94053",
+          "name": "Noiseau"
+        },
+        {
+          "insee_code": "94054",
+          "name": "Orly"
+        },
+        {
+          "insee_code": "94055",
+          "name": "Ormesson-sur-Marne"
+        },
+        {
+          "insee_code": "94056",
+          "name": "Périgny"
+        },
+        {
+          "insee_code": "94058",
+          "name": "Le Perreux-sur-Marne"
+        },
+        {
+          "insee_code": "94059",
+          "name": "Le Plessis-Trévise"
+        },
+        {
+          "insee_code": "94060",
+          "name": "La Queue-en-Brie"
+        },
+        {
+          "insee_code": "94065",
+          "name": "Rungis"
+        },
+        {
+          "insee_code": "94067",
+          "name": "Saint-Mandé"
+        },
+        {
+          "insee_code": "94068",
+          "name": "Saint-Maur-des-Fossés"
+        },
+        {
+          "insee_code": "94069",
+          "name": "Saint-Maurice"
+        },
+        {
+          "insee_code": "94070",
+          "name": "Santeny"
+        },
+        {
+          "insee_code": "94071",
+          "name": "Sucy-en-Brie"
+        },
+        {
+          "insee_code": "94073",
+          "name": "Thiais"
+        },
+        {
+          "insee_code": "94074",
+          "name": "Valenton"
+        },
+        {
+          "insee_code": "94075",
+          "name": "Villecresnes"
+        },
+        {
+          "insee_code": "94076",
+          "name": "Villejuif"
+        },
+        {
+          "insee_code": "94077",
+          "name": "Villeneuve-le-Roi"
+        },
+        {
+          "insee_code": "94078",
+          "name": "Villeneuve-Saint-Georges"
+        },
+        {
+          "insee_code": "94079",
+          "name": "Villiers-sur-Marne"
+        },
+        {
+          "insee_code": "94080",
+          "name": "Vincennes"
+        },
+        {
+          "insee_code": "94081",
+          "name": "Vitry-sur-Seine"
+        },
+        {
+          "insee_code": "95018",
+          "name": "Argenteuil"
+        }
+      ]
+    },
+    {
+      "key": "aix_marseille_provence",
+      "official_name": "Métropole d'Aix-Marseille-Provence",
+      "city_center": "Marseille",
+      "activation_aliases": [
+        "Marseille",
+        "Aix-Marseille",
+        "Aix-Marseille-Provence",
+        "Métropole d'Aix-Marseille-Provence"
+      ],
+      "epci_code": "200054807",
+      "source_url": "https://geo.api.gouv.fr/epcis/200054807/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/200054807/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "13001",
+          "name": "Aix-en-Provence"
+        },
+        {
+          "insee_code": "13002",
+          "name": "Allauch"
+        },
+        {
+          "insee_code": "13003",
+          "name": "Alleins"
+        },
+        {
+          "insee_code": "13005",
+          "name": "Aubagne"
+        },
+        {
+          "insee_code": "13007",
+          "name": "Auriol"
+        },
+        {
+          "insee_code": "13008",
+          "name": "Aurons"
+        },
+        {
+          "insee_code": "13009",
+          "name": "La Barben"
+        },
+        {
+          "insee_code": "13012",
+          "name": "Beaurecueil"
+        },
+        {
+          "insee_code": "13013",
+          "name": "Belcodène"
+        },
+        {
+          "insee_code": "13014",
+          "name": "Berre-l'Étang"
+        },
+        {
+          "insee_code": "13015",
+          "name": "Bouc-Bel-Air"
+        },
+        {
+          "insee_code": "13016",
+          "name": "La Bouilladisse"
+        },
+        {
+          "insee_code": "13019",
+          "name": "Cabriès"
+        },
+        {
+          "insee_code": "13020",
+          "name": "Cadolive"
+        },
+        {
+          "insee_code": "13021",
+          "name": "Carry-le-Rouet"
+        },
+        {
+          "insee_code": "13022",
+          "name": "Cassis"
+        },
+        {
+          "insee_code": "13023",
+          "name": "Ceyreste"
+        },
+        {
+          "insee_code": "13024",
+          "name": "Charleval"
+        },
+        {
+          "insee_code": "13025",
+          "name": "Châteauneuf-le-Rouge"
+        },
+        {
+          "insee_code": "13026",
+          "name": "Châteauneuf-les-Martigues"
+        },
+        {
+          "insee_code": "13028",
+          "name": "La Ciotat"
+        },
+        {
+          "insee_code": "13029",
+          "name": "Cornillon-Confoux"
+        },
+        {
+          "insee_code": "13030",
+          "name": "Cuges-les-Pins"
+        },
+        {
+          "insee_code": "13031",
+          "name": "La Destrousse"
+        },
+        {
+          "insee_code": "13032",
+          "name": "Éguilles"
+        },
+        {
+          "insee_code": "13033",
+          "name": "Ensuès-la-Redonne"
+        },
+        {
+          "insee_code": "13035",
+          "name": "Eyguières"
+        },
+        {
+          "insee_code": "13037",
+          "name": "La Fare-les-Oliviers"
+        },
+        {
+          "insee_code": "13039",
+          "name": "Fos-sur-Mer"
+        },
+        {
+          "insee_code": "13040",
+          "name": "Fuveau"
+        },
+        {
+          "insee_code": "13041",
+          "name": "Gardanne"
+        },
+        {
+          "insee_code": "13042",
+          "name": "Gémenos"
+        },
+        {
+          "insee_code": "13043",
+          "name": "Gignac-la-Nerthe"
+        },
+        {
+          "insee_code": "13044",
+          "name": "Grans"
+        },
+        {
+          "insee_code": "13046",
+          "name": "Gréasque"
+        },
+        {
+          "insee_code": "13047",
+          "name": "Istres"
+        },
+        {
+          "insee_code": "13048",
+          "name": "Jouques"
+        },
+        {
+          "insee_code": "13049",
+          "name": "Lamanon"
+        },
+        {
+          "insee_code": "13050",
+          "name": "Lambesc"
+        },
+        {
+          "insee_code": "13051",
+          "name": "Lançon-Provence"
+        },
+        {
+          "insee_code": "13053",
+          "name": "Mallemort"
+        },
+        {
+          "insee_code": "13054",
+          "name": "Marignane"
+        },
+        {
+          "insee_code": "13055",
+          "name": "Marseille"
+        },
+        {
+          "insee_code": "13056",
+          "name": "Martigues"
+        },
+        {
+          "insee_code": "13059",
+          "name": "Meyrargues"
+        },
+        {
+          "insee_code": "13060",
+          "name": "Meyreuil"
+        },
+        {
+          "insee_code": "13062",
+          "name": "Mimet"
+        },
+        {
+          "insee_code": "13063",
+          "name": "Miramas"
+        },
+        {
+          "insee_code": "13069",
+          "name": "Pélissanne"
+        },
+        {
+          "insee_code": "13070",
+          "name": "La Penne-sur-Huveaune"
+        },
+        {
+          "insee_code": "13071",
+          "name": "Les Pennes-Mirabeau"
+        },
+        {
+          "insee_code": "13072",
+          "name": "Peynier"
+        },
+        {
+          "insee_code": "13073",
+          "name": "Peypin"
+        },
+        {
+          "insee_code": "13074",
+          "name": "Peyrolles-en-Provence"
+        },
+        {
+          "insee_code": "13075",
+          "name": "Plan-de-Cuques"
+        },
+        {
+          "insee_code": "13077",
+          "name": "Port-de-Bouc"
+        },
+        {
+          "insee_code": "13078",
+          "name": "Port-Saint-Louis-du-Rhône"
+        },
+        {
+          "insee_code": "13079",
+          "name": "Puyloubier"
+        },
+        {
+          "insee_code": "13080",
+          "name": "Le Puy-Sainte-Réparade"
+        },
+        {
+          "insee_code": "13081",
+          "name": "Rognac"
+        },
+        {
+          "insee_code": "13082",
+          "name": "Rognes"
+        },
+        {
+          "insee_code": "13084",
+          "name": "La Roque-d'Anthéron"
+        },
+        {
+          "insee_code": "13085",
+          "name": "Roquefort-la-Bédoule"
+        },
+        {
+          "insee_code": "13086",
+          "name": "Roquevaire"
+        },
+        {
+          "insee_code": "13087",
+          "name": "Rousset"
+        },
+        {
+          "insee_code": "13088",
+          "name": "Le Rove"
+        },
+        {
+          "insee_code": "13090",
+          "name": "Saint-Antonin-sur-Bayon"
+        },
+        {
+          "insee_code": "13091",
+          "name": "Saint-Cannat"
+        },
+        {
+          "insee_code": "13092",
+          "name": "Saint-Chamas"
+        },
+        {
+          "insee_code": "13093",
+          "name": "Saint-Estève-Janson"
+        },
+        {
+          "insee_code": "13095",
+          "name": "Saint-Marc-Jaumegarde"
+        },
+        {
+          "insee_code": "13098",
+          "name": "Saint-Mitre-les-Remparts"
+        },
+        {
+          "insee_code": "13099",
+          "name": "Saint-Paul-lès-Durance"
+        },
+        {
+          "insee_code": "13101",
+          "name": "Saint-Savournin"
+        },
+        {
+          "insee_code": "13102",
+          "name": "Saint-Victoret"
+        },
+        {
+          "insee_code": "13103",
+          "name": "Salon-de-Provence"
+        },
+        {
+          "insee_code": "13104",
+          "name": "Sausset-les-Pins"
+        },
+        {
+          "insee_code": "13105",
+          "name": "Sénas"
+        },
+        {
+          "insee_code": "13106",
+          "name": "Septèmes-les-Vallons"
+        },
+        {
+          "insee_code": "13107",
+          "name": "Simiane-Collongue"
+        },
+        {
+          "insee_code": "13109",
+          "name": "Le Tholonet"
+        },
+        {
+          "insee_code": "13110",
+          "name": "Trets"
+        },
+        {
+          "insee_code": "13111",
+          "name": "Vauvenargues"
+        },
+        {
+          "insee_code": "13112",
+          "name": "Velaux"
+        },
+        {
+          "insee_code": "13113",
+          "name": "Venelles"
+        },
+        {
+          "insee_code": "13114",
+          "name": "Ventabren"
+        },
+        {
+          "insee_code": "13115",
+          "name": "Vernègues"
+        },
+        {
+          "insee_code": "13117",
+          "name": "Vitrolles"
+        },
+        {
+          "insee_code": "13118",
+          "name": "Coudoux"
+        },
+        {
+          "insee_code": "13119",
+          "name": "Carnoux-en-Provence"
+        },
+        {
+          "insee_code": "83120",
+          "name": "Saint-Zacharie"
+        },
+        {
+          "insee_code": "84089",
+          "name": "Pertuis"
+        }
+      ]
+    },
+    {
+      "key": "lille",
+      "official_name": "Métropole Européenne de Lille",
+      "city_center": "Lille",
+      "activation_aliases": [
+        "Lille",
+        "Métropole Européenne de Lille"
+      ],
+      "epci_code": "200093201",
+      "source_url": "https://geo.api.gouv.fr/epcis/200093201/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/200093201/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "59005",
+          "name": "Allennes-les-Marais"
+        },
+        {
+          "insee_code": "59009",
+          "name": "Villeneuve-d'Ascq"
+        },
+        {
+          "insee_code": "59011",
+          "name": "Annœullin"
+        },
+        {
+          "insee_code": "59013",
+          "name": "Anstaing"
+        },
+        {
+          "insee_code": "59017",
+          "name": "Armentières"
+        },
+        {
+          "insee_code": "59025",
+          "name": "Aubers"
+        },
+        {
+          "insee_code": "59044",
+          "name": "Baisieux"
+        },
+        {
+          "insee_code": "59051",
+          "name": "La Bassée"
+        },
+        {
+          "insee_code": "59052",
+          "name": "Bauvin"
+        },
+        {
+          "insee_code": "59056",
+          "name": "Beaucamps-Ligny"
+        },
+        {
+          "insee_code": "59088",
+          "name": "Bois-Grenier"
+        },
+        {
+          "insee_code": "59090",
+          "name": "Bondues"
+        },
+        {
+          "insee_code": "59098",
+          "name": "Bousbecque"
+        },
+        {
+          "insee_code": "59106",
+          "name": "Bouvines"
+        },
+        {
+          "insee_code": "59128",
+          "name": "Capinghem"
+        },
+        {
+          "insee_code": "59133",
+          "name": "Carnin"
+        },
+        {
+          "insee_code": "59143",
+          "name": "La Chapelle-d'Armentières"
+        },
+        {
+          "insee_code": "59146",
+          "name": "Chéreng"
+        },
+        {
+          "insee_code": "59152",
+          "name": "Comines"
+        },
+        {
+          "insee_code": "59163",
+          "name": "Croix"
+        },
+        {
+          "insee_code": "59173",
+          "name": "Deûlémont"
+        },
+        {
+          "insee_code": "59193",
+          "name": "Emmerin"
+        },
+        {
+          "insee_code": "59195",
+          "name": "Englos"
+        },
+        {
+          "insee_code": "59196",
+          "name": "Ennetières-en-Weppes"
+        },
+        {
+          "insee_code": "59201",
+          "name": "Erquinghem-le-Sec"
+        },
+        {
+          "insee_code": "59202",
+          "name": "Erquinghem-Lys"
+        },
+        {
+          "insee_code": "59208",
+          "name": "Escobecques"
+        },
+        {
+          "insee_code": "59220",
+          "name": "Faches-Thumesnil"
+        },
+        {
+          "insee_code": "59247",
+          "name": "Forest-sur-Marque"
+        },
+        {
+          "insee_code": "59250",
+          "name": "Fournes-en-Weppes"
+        },
+        {
+          "insee_code": "59252",
+          "name": "Frelinghien"
+        },
+        {
+          "insee_code": "59256",
+          "name": "Fretin"
+        },
+        {
+          "insee_code": "59257",
+          "name": "Fromelles"
+        },
+        {
+          "insee_code": "59275",
+          "name": "Gruson"
+        },
+        {
+          "insee_code": "59278",
+          "name": "Hallennes-lez-Haubourdin"
+        },
+        {
+          "insee_code": "59279",
+          "name": "Halluin"
+        },
+        {
+          "insee_code": "59281",
+          "name": "Hantay"
+        },
+        {
+          "insee_code": "59286",
+          "name": "Haubourdin"
+        },
+        {
+          "insee_code": "59299",
+          "name": "Hem"
+        },
+        {
+          "insee_code": "59303",
+          "name": "Herlies"
+        },
+        {
+          "insee_code": "59316",
+          "name": "Houplin-Ancoisne"
+        },
+        {
+          "insee_code": "59317",
+          "name": "Houplines"
+        },
+        {
+          "insee_code": "59320",
+          "name": "Illies"
+        },
+        {
+          "insee_code": "59328",
+          "name": "Lambersart"
+        },
+        {
+          "insee_code": "59332",
+          "name": "Lannoy"
+        },
+        {
+          "insee_code": "59339",
+          "name": "Leers"
+        },
+        {
+          "insee_code": "59343",
+          "name": "Lesquin"
+        },
+        {
+          "insee_code": "59346",
+          "name": "Lezennes"
+        },
+        {
+          "insee_code": "59350",
+          "name": "Lille"
+        },
+        {
+          "insee_code": "59352",
+          "name": "Linselles"
+        },
+        {
+          "insee_code": "59356",
+          "name": "Lompret"
+        },
+        {
+          "insee_code": "59360",
+          "name": "Loos"
+        },
+        {
+          "insee_code": "59367",
+          "name": "Lys-lez-Lannoy"
+        },
+        {
+          "insee_code": "59368",
+          "name": "La Madeleine"
+        },
+        {
+          "insee_code": "59371",
+          "name": "Le Maisnil"
+        },
+        {
+          "insee_code": "59378",
+          "name": "Marcq-en-Barœul"
+        },
+        {
+          "insee_code": "59386",
+          "name": "Marquette-lez-Lille"
+        },
+        {
+          "insee_code": "59388",
+          "name": "Marquillies"
+        },
+        {
+          "insee_code": "59410",
+          "name": "Mons-en-Barœul"
+        },
+        {
+          "insee_code": "59421",
+          "name": "Mouvaux"
+        },
+        {
+          "insee_code": "59426",
+          "name": "Neuville-en-Ferrain"
+        },
+        {
+          "insee_code": "59437",
+          "name": "Noyelles-lès-Seclin"
+        },
+        {
+          "insee_code": "59457",
+          "name": "Pérenchies"
+        },
+        {
+          "insee_code": "59458",
+          "name": "Péronne-en-Mélantois"
+        },
+        {
+          "insee_code": "59470",
+          "name": "Prémesques"
+        },
+        {
+          "insee_code": "59477",
+          "name": "Provin"
+        },
+        {
+          "insee_code": "59482",
+          "name": "Quesnoy-sur-Deûle"
+        },
+        {
+          "insee_code": "59487",
+          "name": "Radinghem-en-Weppes"
+        },
+        {
+          "insee_code": "59507",
+          "name": "Ronchin"
+        },
+        {
+          "insee_code": "59508",
+          "name": "Roncq"
+        },
+        {
+          "insee_code": "59512",
+          "name": "Roubaix"
+        },
+        {
+          "insee_code": "59522",
+          "name": "Sailly-lez-Lannoy"
+        },
+        {
+          "insee_code": "59523",
+          "name": "Sainghin-en-Mélantois"
+        },
+        {
+          "insee_code": "59524",
+          "name": "Sainghin-en-Weppes"
+        },
+        {
+          "insee_code": "59527",
+          "name": "Saint-André-lez-Lille"
+        },
+        {
+          "insee_code": "59550",
+          "name": "Salomé"
+        },
+        {
+          "insee_code": "59553",
+          "name": "Santes"
+        },
+        {
+          "insee_code": "59560",
+          "name": "Seclin"
+        },
+        {
+          "insee_code": "59566",
+          "name": "Sequedin"
+        },
+        {
+          "insee_code": "59585",
+          "name": "Templemars"
+        },
+        {
+          "insee_code": "59598",
+          "name": "Toufflers"
+        },
+        {
+          "insee_code": "59599",
+          "name": "Tourcoing"
+        },
+        {
+          "insee_code": "59602",
+          "name": "Tressin"
+        },
+        {
+          "insee_code": "59609",
+          "name": "Vendeville"
+        },
+        {
+          "insee_code": "59611",
+          "name": "Verlinghem"
+        },
+        {
+          "insee_code": "59636",
+          "name": "Wambrechies"
+        },
+        {
+          "insee_code": "59643",
+          "name": "Warneton"
+        },
+        {
+          "insee_code": "59646",
+          "name": "Wasquehal"
+        },
+        {
+          "insee_code": "59648",
+          "name": "Wattignies"
+        },
+        {
+          "insee_code": "59650",
+          "name": "Wattrelos"
+        },
+        {
+          "insee_code": "59653",
+          "name": "Wavrin"
+        },
+        {
+          "insee_code": "59656",
+          "name": "Wervicq-Sud"
+        },
+        {
+          "insee_code": "59658",
+          "name": "Wicres"
+        },
+        {
+          "insee_code": "59660",
+          "name": "Willems"
+        },
+        {
+          "insee_code": "59670",
+          "name": "Don"
+        }
+      ]
+    },
+    {
+      "key": "bordeaux",
+      "official_name": "Bordeaux Métropole",
+      "city_center": "Bordeaux",
+      "activation_aliases": [
+        "Bordeaux",
+        "Bordeaux Métropole"
+      ],
+      "epci_code": "243300316",
+      "source_url": "https://geo.api.gouv.fr/epcis/243300316/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/243300316/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "33003",
+          "name": "Ambarès-et-Lagrave"
+        },
+        {
+          "insee_code": "33004",
+          "name": "Ambès"
+        },
+        {
+          "insee_code": "33013",
+          "name": "Artigues-près-Bordeaux"
+        },
+        {
+          "insee_code": "33032",
+          "name": "Bassens"
+        },
+        {
+          "insee_code": "33039",
+          "name": "Bègles"
+        },
+        {
+          "insee_code": "33056",
+          "name": "Blanquefort"
+        },
+        {
+          "insee_code": "33063",
+          "name": "Bordeaux"
+        },
+        {
+          "insee_code": "33065",
+          "name": "Bouliac"
+        },
+        {
+          "insee_code": "33069",
+          "name": "Le Bouscat"
+        },
+        {
+          "insee_code": "33075",
+          "name": "Bruges"
+        },
+        {
+          "insee_code": "33096",
+          "name": "Carbon-Blanc"
+        },
+        {
+          "insee_code": "33119",
+          "name": "Cenon"
+        },
+        {
+          "insee_code": "33162",
+          "name": "Eysines"
+        },
+        {
+          "insee_code": "33167",
+          "name": "Floirac"
+        },
+        {
+          "insee_code": "33192",
+          "name": "Gradignan"
+        },
+        {
+          "insee_code": "33200",
+          "name": "Le Haillan"
+        },
+        {
+          "insee_code": "33249",
+          "name": "Lormont"
+        },
+        {
+          "insee_code": "33273",
+          "name": "Martignas-sur-Jalle"
+        },
+        {
+          "insee_code": "33281",
+          "name": "Mérignac"
+        },
+        {
+          "insee_code": "33312",
+          "name": "Parempuyre"
+        },
+        {
+          "insee_code": "33318",
+          "name": "Pessac"
+        },
+        {
+          "insee_code": "33376",
+          "name": "Saint-Aubin-de-Médoc"
+        },
+        {
+          "insee_code": "33434",
+          "name": "Saint-Louis-de-Montferrand"
+        },
+        {
+          "insee_code": "33449",
+          "name": "Saint-Médard-en-Jalles"
+        },
+        {
+          "insee_code": "33487",
+          "name": "Saint-Vincent-de-Paul"
+        },
+        {
+          "insee_code": "33519",
+          "name": "Le Taillan-Médoc"
+        },
+        {
+          "insee_code": "33522",
+          "name": "Talence"
+        },
+        {
+          "insee_code": "33550",
+          "name": "Villenave-d'Ornon"
+        }
+      ]
+    },
+    {
+      "key": "toulouse",
+      "official_name": "Toulouse Métropole",
+      "city_center": "Toulouse",
+      "activation_aliases": [
+        "Toulouse",
+        "Toulouse Métropole"
+      ],
+      "epci_code": "243100518",
+      "source_url": "https://geo.api.gouv.fr/epcis/243100518/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/243100518/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "31003",
+          "name": "Aigrefeuille"
+        },
+        {
+          "insee_code": "31022",
+          "name": "Aucamville"
+        },
+        {
+          "insee_code": "31032",
+          "name": "Aussonne"
+        },
+        {
+          "insee_code": "31044",
+          "name": "Balma"
+        },
+        {
+          "insee_code": "31053",
+          "name": "Beaupuy"
+        },
+        {
+          "insee_code": "31056",
+          "name": "Beauzelle"
+        },
+        {
+          "insee_code": "31069",
+          "name": "Blagnac"
+        },
+        {
+          "insee_code": "31088",
+          "name": "Brax"
+        },
+        {
+          "insee_code": "31091",
+          "name": "Bruguières"
+        },
+        {
+          "insee_code": "31116",
+          "name": "Castelginest"
+        },
+        {
+          "insee_code": "31149",
+          "name": "Colomiers"
+        },
+        {
+          "insee_code": "31150",
+          "name": "Cornebarrieu"
+        },
+        {
+          "insee_code": "31157",
+          "name": "Cugnaux"
+        },
+        {
+          "insee_code": "31163",
+          "name": "Drémil-Lafage"
+        },
+        {
+          "insee_code": "31182",
+          "name": "Fenouillet"
+        },
+        {
+          "insee_code": "31184",
+          "name": "Flourens"
+        },
+        {
+          "insee_code": "31186",
+          "name": "Fonbeauzard"
+        },
+        {
+          "insee_code": "31205",
+          "name": "Gagnac-sur-Garonne"
+        },
+        {
+          "insee_code": "31230",
+          "name": "Gratentour"
+        },
+        {
+          "insee_code": "31282",
+          "name": "Launaguet"
+        },
+        {
+          "insee_code": "31293",
+          "name": "Lespinasse"
+        },
+        {
+          "insee_code": "31351",
+          "name": "Mondonville"
+        },
+        {
+          "insee_code": "31352",
+          "name": "Mondouzil"
+        },
+        {
+          "insee_code": "31355",
+          "name": "Mons"
+        },
+        {
+          "insee_code": "31389",
+          "name": "Montrabé"
+        },
+        {
+          "insee_code": "31417",
+          "name": "Pibrac"
+        },
+        {
+          "insee_code": "31418",
+          "name": "Pin-Balma"
+        },
+        {
+          "insee_code": "31445",
+          "name": "Quint-Fonsegrives"
+        },
+        {
+          "insee_code": "31467",
+          "name": "Saint-Alban"
+        },
+        {
+          "insee_code": "31488",
+          "name": "Saint-Jean"
+        },
+        {
+          "insee_code": "31490",
+          "name": "Saint-Jory"
+        },
+        {
+          "insee_code": "31506",
+          "name": "Saint-Orens-de-Gameville"
+        },
+        {
+          "insee_code": "31541",
+          "name": "Seilh"
+        },
+        {
+          "insee_code": "31555",
+          "name": "Toulouse"
+        },
+        {
+          "insee_code": "31557",
+          "name": "Tournefeuille"
+        },
+        {
+          "insee_code": "31561",
+          "name": "L'Union"
+        },
+        {
+          "insee_code": "31588",
+          "name": "Villeneuve-Tolosane"
+        }
+      ]
+    },
+    {
+      "key": "nantes",
+      "official_name": "Nantes Métropole",
+      "city_center": "Nantes",
+      "activation_aliases": [
+        "Nantes",
+        "Nantes Métropole"
+      ],
+      "epci_code": "244400404",
+      "source_url": "https://geo.api.gouv.fr/epcis/244400404/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/244400404/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "44009",
+          "name": "Basse-Goulaine"
+        },
+        {
+          "insee_code": "44018",
+          "name": "Bouaye"
+        },
+        {
+          "insee_code": "44020",
+          "name": "Bouguenais"
+        },
+        {
+          "insee_code": "44024",
+          "name": "Brains"
+        },
+        {
+          "insee_code": "44026",
+          "name": "Carquefou"
+        },
+        {
+          "insee_code": "44035",
+          "name": "La Chapelle-sur-Erdre"
+        },
+        {
+          "insee_code": "44047",
+          "name": "Couëron"
+        },
+        {
+          "insee_code": "44074",
+          "name": "Indre"
+        },
+        {
+          "insee_code": "44094",
+          "name": "Mauves-sur-Loire"
+        },
+        {
+          "insee_code": "44101",
+          "name": "La Montagne"
+        },
+        {
+          "insee_code": "44109",
+          "name": "Nantes"
+        },
+        {
+          "insee_code": "44114",
+          "name": "Orvault"
+        },
+        {
+          "insee_code": "44120",
+          "name": "Le Pellerin"
+        },
+        {
+          "insee_code": "44143",
+          "name": "Rezé"
+        },
+        {
+          "insee_code": "44150",
+          "name": "Saint-Aignan-Grandlieu"
+        },
+        {
+          "insee_code": "44162",
+          "name": "Saint-Herblain"
+        },
+        {
+          "insee_code": "44166",
+          "name": "Saint-Jean-de-Boiseau"
+        },
+        {
+          "insee_code": "44171",
+          "name": "Saint-Léger-les-Vignes"
+        },
+        {
+          "insee_code": "44172",
+          "name": "Sainte-Luce-sur-Loire"
+        },
+        {
+          "insee_code": "44190",
+          "name": "Saint-Sébastien-sur-Loire"
+        },
+        {
+          "insee_code": "44194",
+          "name": "Sautron"
+        },
+        {
+          "insee_code": "44198",
+          "name": "Les Sorinières"
+        },
+        {
+          "insee_code": "44204",
+          "name": "Thouaré-sur-Loire"
+        },
+        {
+          "insee_code": "44215",
+          "name": "Vertou"
+        }
+      ]
+    },
+    {
+      "key": "nice_cote_d_azur",
+      "official_name": "Métropole Nice Côte d'Azur",
+      "city_center": "Nice",
+      "activation_aliases": [
+        "Nice",
+        "Nice Côte d'Azur",
+        "Métropole Nice Côte d'Azur"
+      ],
+      "epci_code": "200030195",
+      "source_url": "https://geo.api.gouv.fr/epcis/200030195/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/200030195/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "06006",
+          "name": "Aspremont"
+        },
+        {
+          "insee_code": "06009",
+          "name": "Bairols"
+        },
+        {
+          "insee_code": "06011",
+          "name": "Beaulieu-sur-Mer"
+        },
+        {
+          "insee_code": "06013",
+          "name": "Belvédère"
+        },
+        {
+          "insee_code": "06020",
+          "name": "La Bollène-Vésubie"
+        },
+        {
+          "insee_code": "06021",
+          "name": "Bonson"
+        },
+        {
+          "insee_code": "06025",
+          "name": "Le Broc"
+        },
+        {
+          "insee_code": "06027",
+          "name": "Cagnes-sur-Mer"
+        },
+        {
+          "insee_code": "06032",
+          "name": "Cap-d'Ail"
+        },
+        {
+          "insee_code": "06033",
+          "name": "Carros"
+        },
+        {
+          "insee_code": "06034",
+          "name": "Castagniers"
+        },
+        {
+          "insee_code": "06039",
+          "name": "Châteauneuf-Villevieille"
+        },
+        {
+          "insee_code": "06042",
+          "name": "Clans"
+        },
+        {
+          "insee_code": "06046",
+          "name": "Colomars"
+        },
+        {
+          "insee_code": "06054",
+          "name": "Drap"
+        },
+        {
+          "insee_code": "06055",
+          "name": "Duranus"
+        },
+        {
+          "insee_code": "06059",
+          "name": "Èze"
+        },
+        {
+          "insee_code": "06060",
+          "name": "Falicon"
+        },
+        {
+          "insee_code": "06064",
+          "name": "Gattières"
+        },
+        {
+          "insee_code": "06065",
+          "name": "La Gaude"
+        },
+        {
+          "insee_code": "06066",
+          "name": "Gilette"
+        },
+        {
+          "insee_code": "06072",
+          "name": "Ilonse"
+        },
+        {
+          "insee_code": "06073",
+          "name": "Isola"
+        },
+        {
+          "insee_code": "06074",
+          "name": "Lantosque"
+        },
+        {
+          "insee_code": "06075",
+          "name": "Levens"
+        },
+        {
+          "insee_code": "06080",
+          "name": "Marie"
+        },
+        {
+          "insee_code": "06088",
+          "name": "Nice"
+        },
+        {
+          "insee_code": "06102",
+          "name": "Rimplas"
+        },
+        {
+          "insee_code": "06103",
+          "name": "Roquebillière"
+        },
+        {
+          "insee_code": "06109",
+          "name": "La Roquette-sur-Var"
+        },
+        {
+          "insee_code": "06110",
+          "name": "Roubion"
+        },
+        {
+          "insee_code": "06111",
+          "name": "Roure"
+        },
+        {
+          "insee_code": "06114",
+          "name": "Saint-André-de-la-Roche"
+        },
+        {
+          "insee_code": "06117",
+          "name": "Saint-Blaise"
+        },
+        {
+          "insee_code": "06119",
+          "name": "Saint-Dalmas-le-Selvage"
+        },
+        {
+          "insee_code": "06120",
+          "name": "Saint-Étienne-de-Tinée"
+        },
+        {
+          "insee_code": "06121",
+          "name": "Saint-Jean-Cap-Ferrat"
+        },
+        {
+          "insee_code": "06122",
+          "name": "Saint-Jeannet"
+        },
+        {
+          "insee_code": "06123",
+          "name": "Saint-Laurent-du-Var"
+        },
+        {
+          "insee_code": "06126",
+          "name": "Saint-Martin-du-Var"
+        },
+        {
+          "insee_code": "06127",
+          "name": "Saint-Martin-Vésubie"
+        },
+        {
+          "insee_code": "06129",
+          "name": "Saint-Sauveur-sur-Tinée"
+        },
+        {
+          "insee_code": "06144",
+          "name": "La Tour"
+        },
+        {
+          "insee_code": "06146",
+          "name": "Tournefort"
+        },
+        {
+          "insee_code": "06147",
+          "name": "Tourrette-Levens"
+        },
+        {
+          "insee_code": "06149",
+          "name": "La Trinité"
+        },
+        {
+          "insee_code": "06151",
+          "name": "Utelle"
+        },
+        {
+          "insee_code": "06153",
+          "name": "Valdeblore"
+        },
+        {
+          "insee_code": "06156",
+          "name": "Venanson"
+        },
+        {
+          "insee_code": "06157",
+          "name": "Vence"
+        },
+        {
+          "insee_code": "06159",
+          "name": "Villefranche-sur-Mer"
+        }
+      ]
+    },
+    {
+      "key": "montpellier",
+      "official_name": "Montpellier Méditerranée Métropole",
+      "city_center": "Montpellier",
+      "activation_aliases": [
+        "Montpellier",
+        "Montpellier Méditerranée Métropole"
+      ],
+      "epci_code": "243400017",
+      "source_url": "https://geo.api.gouv.fr/epcis/243400017/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/243400017/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "34022",
+          "name": "Baillargues"
+        },
+        {
+          "insee_code": "34027",
+          "name": "Beaulieu"
+        },
+        {
+          "insee_code": "34057",
+          "name": "Castelnau-le-Lez"
+        },
+        {
+          "insee_code": "34058",
+          "name": "Castries"
+        },
+        {
+          "insee_code": "34077",
+          "name": "Clapiers"
+        },
+        {
+          "insee_code": "34087",
+          "name": "Cournonsec"
+        },
+        {
+          "insee_code": "34088",
+          "name": "Cournonterral"
+        },
+        {
+          "insee_code": "34090",
+          "name": "Le Crès"
+        },
+        {
+          "insee_code": "34095",
+          "name": "Fabrègues"
+        },
+        {
+          "insee_code": "34116",
+          "name": "Grabels"
+        },
+        {
+          "insee_code": "34120",
+          "name": "Jacou"
+        },
+        {
+          "insee_code": "34123",
+          "name": "Juvignac"
+        },
+        {
+          "insee_code": "34129",
+          "name": "Lattes"
+        },
+        {
+          "insee_code": "34134",
+          "name": "Lavérune"
+        },
+        {
+          "insee_code": "34164",
+          "name": "Montaud"
+        },
+        {
+          "insee_code": "34169",
+          "name": "Montferrier-sur-Lez"
+        },
+        {
+          "insee_code": "34172",
+          "name": "Montpellier"
+        },
+        {
+          "insee_code": "34179",
+          "name": "Murviel-lès-Montpellier"
+        },
+        {
+          "insee_code": "34198",
+          "name": "Pérols"
+        },
+        {
+          "insee_code": "34202",
+          "name": "Pignan"
+        },
+        {
+          "insee_code": "34217",
+          "name": "Prades-le-Lez"
+        },
+        {
+          "insee_code": "34227",
+          "name": "Restinclières"
+        },
+        {
+          "insee_code": "34244",
+          "name": "Saint-Brès"
+        },
+        {
+          "insee_code": "34249",
+          "name": "Saint-Drézéry"
+        },
+        {
+          "insee_code": "34256",
+          "name": "Saint-Geniès-des-Mourgues"
+        },
+        {
+          "insee_code": "34259",
+          "name": "Saint-Georges-d'Orques"
+        },
+        {
+          "insee_code": "34270",
+          "name": "Saint-Jean-de-Védas"
+        },
+        {
+          "insee_code": "34295",
+          "name": "Saussan"
+        },
+        {
+          "insee_code": "34307",
+          "name": "Sussargues"
+        },
+        {
+          "insee_code": "34327",
+          "name": "Vendargues"
+        },
+        {
+          "insee_code": "34337",
+          "name": "Villeneuve-lès-Maguelone"
+        }
+      ]
+    },
+    {
+      "key": "strasbourg",
+      "official_name": "Eurométropole de Strasbourg",
+      "city_center": "Strasbourg",
+      "activation_aliases": [
+        "Strasbourg",
+        "Eurométropole de Strasbourg"
+      ],
+      "epci_code": "246700488",
+      "source_url": "https://geo.api.gouv.fr/epcis/246700488/communes?fields=nom,code",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/246700488/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "67001",
+          "name": "Achenheim"
+        },
+        {
+          "insee_code": "67043",
+          "name": "Bischheim"
+        },
+        {
+          "insee_code": "67049",
+          "name": "Blaesheim"
+        },
+        {
+          "insee_code": "67065",
+          "name": "Breuschwickersheim"
+        },
+        {
+          "insee_code": "67118",
+          "name": "Eckbolsheim"
+        },
+        {
+          "insee_code": "67119",
+          "name": "Eckwersheim"
+        },
+        {
+          "insee_code": "67124",
+          "name": "Entzheim"
+        },
+        {
+          "insee_code": "67131",
+          "name": "Eschau"
+        },
+        {
+          "insee_code": "67137",
+          "name": "Fegersheim"
+        },
+        {
+          "insee_code": "67152",
+          "name": "Geispolsheim"
+        },
+        {
+          "insee_code": "67182",
+          "name": "Hangenbieten"
+        },
+        {
+          "insee_code": "67204",
+          "name": "Hœnheim"
+        },
+        {
+          "insee_code": "67212",
+          "name": "Holtzheim"
+        },
+        {
+          "insee_code": "67218",
+          "name": "Illkirch-Graffenstaden"
+        },
+        {
+          "insee_code": "67247",
+          "name": "Kolbsheim"
+        },
+        {
+          "insee_code": "67256",
+          "name": "Lampertheim"
+        },
+        {
+          "insee_code": "67267",
+          "name": "Lingolsheim"
+        },
+        {
+          "insee_code": "67268",
+          "name": "Lipsheim"
+        },
+        {
+          "insee_code": "67296",
+          "name": "Mittelhausbergen"
+        },
+        {
+          "insee_code": "67309",
+          "name": "Mundolsheim"
+        },
+        {
+          "insee_code": "67326",
+          "name": "Niederhausbergen"
+        },
+        {
+          "insee_code": "67343",
+          "name": "Oberhausbergen"
+        },
+        {
+          "insee_code": "67350",
+          "name": "Oberschaeffolsheim"
+        },
+        {
+          "insee_code": "67363",
+          "name": "Osthoffen"
+        },
+        {
+          "insee_code": "67365",
+          "name": "Ostwald"
+        },
+        {
+          "insee_code": "67378",
+          "name": "Plobsheim"
+        },
+        {
+          "insee_code": "67389",
+          "name": "Reichstett"
+        },
+        {
+          "insee_code": "67447",
+          "name": "Schiltigheim"
+        },
+        {
+          "insee_code": "67471",
+          "name": "Souffelweyersheim"
+        },
+        {
+          "insee_code": "67482",
+          "name": "Strasbourg"
+        },
+        {
+          "insee_code": "67506",
+          "name": "Vendenheim"
+        },
+        {
+          "insee_code": "67519",
+          "name": "La Wantzenau"
+        },
+        {
+          "insee_code": "67551",
+          "name": "Wolfisheim"
+        }
+      ]
+    },
+    {
+      "key": "lyon",
+      "official_name": "Métropole de Lyon",
+      "city_center": "Lyon",
+      "activation_aliases": [
+        "Lyon",
+        "Grand Lyon",
+        "Métropole de Lyon"
+      ],
+      "epci_code": "200046977",
+      "source_url": "https://www.grandlyon.com/metropole/les-58-communes-de-la-metropole",
+      "machine_readable_source_url": "https://geo.api.gouv.fr/epcis/200046977/communes?fields=nom,code",
+      "communes": [
+        {
+          "insee_code": "69003",
+          "name": "Albigny-sur-Saône"
+        },
+        {
+          "insee_code": "69029",
+          "name": "Bron"
+        },
+        {
+          "insee_code": "69033",
+          "name": "Cailloux-sur-Fontaines"
+        },
+        {
+          "insee_code": "69034",
+          "name": "Caluire-et-Cuire"
+        },
+        {
+          "insee_code": "69040",
+          "name": "Champagne-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69044",
+          "name": "Charbonnières-les-Bains"
+        },
+        {
+          "insee_code": "69046",
+          "name": "Charly"
+        },
+        {
+          "insee_code": "69063",
+          "name": "Collonges-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69068",
+          "name": "Couzon-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69069",
+          "name": "Craponne"
+        },
+        {
+          "insee_code": "69071",
+          "name": "Curis-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69072",
+          "name": "Dardilly"
+        },
+        {
+          "insee_code": "69081",
+          "name": "Écully"
+        },
+        {
+          "insee_code": "69085",
+          "name": "Fleurieu-sur-Saône"
+        },
+        {
+          "insee_code": "69087",
+          "name": "Fontaines-Saint-Martin"
+        },
+        {
+          "insee_code": "69088",
+          "name": "Fontaines-sur-Saône"
+        },
+        {
+          "insee_code": "69089",
+          "name": "Francheville"
+        },
+        {
+          "insee_code": "69091",
+          "name": "Givors"
+        },
+        {
+          "insee_code": "69096",
+          "name": "Grigny-sur-Rhône"
+        },
+        {
+          "insee_code": "69100",
+          "name": "Irigny"
+        },
+        {
+          "insee_code": "69116",
+          "name": "Limonest"
+        },
+        {
+          "insee_code": "69117",
+          "name": "Lissieu"
+        },
+        {
+          "insee_code": "69123",
+          "name": "Lyon"
+        },
+        {
+          "insee_code": "69127",
+          "name": "Marcy-l'Étoile"
+        },
+        {
+          "insee_code": "69142",
+          "name": "La Mulatière"
+        },
+        {
+          "insee_code": "69143",
+          "name": "Neuville-sur-Saône"
+        },
+        {
+          "insee_code": "69149",
+          "name": "Oullins-Pierre-Bénite"
+        },
+        {
+          "insee_code": "69153",
+          "name": "Poleymieux-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69163",
+          "name": "Quincieux"
+        },
+        {
+          "insee_code": "69168",
+          "name": "Rochetaillée-sur-Saône"
+        },
+        {
+          "insee_code": "69191",
+          "name": "Saint-Cyr-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69194",
+          "name": "Saint-Didier-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69199",
+          "name": "Saint-Fons"
+        },
+        {
+          "insee_code": "69202",
+          "name": "Sainte-Foy-lès-Lyon"
+        },
+        {
+          "insee_code": "69204",
+          "name": "Saint-Genis-Laval"
+        },
+        {
+          "insee_code": "69205",
+          "name": "Saint-Genis-les-Ollières"
+        },
+        {
+          "insee_code": "69207",
+          "name": "Saint-Germain-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69233",
+          "name": "Saint-Romain-au-Mont-d'Or"
+        },
+        {
+          "insee_code": "69244",
+          "name": "Tassin-la-Demi-Lune"
+        },
+        {
+          "insee_code": "69250",
+          "name": "La Tour-de-Salvagny"
+        },
+        {
+          "insee_code": "69256",
+          "name": "Vaulx-en-Velin"
+        },
+        {
+          "insee_code": "69259",
+          "name": "Vénissieux"
+        },
+        {
+          "insee_code": "69260",
+          "name": "Vernaison"
+        },
+        {
+          "insee_code": "69266",
+          "name": "Villeurbanne"
+        },
+        {
+          "insee_code": "69271",
+          "name": "Chassieu"
+        },
+        {
+          "insee_code": "69273",
+          "name": "Corbas"
+        },
+        {
+          "insee_code": "69275",
+          "name": "Décines-Charpieu"
+        },
+        {
+          "insee_code": "69276",
+          "name": "Feyzin"
+        },
+        {
+          "insee_code": "69278",
+          "name": "Genay"
+        },
+        {
+          "insee_code": "69279",
+          "name": "Jonage"
+        },
+        {
+          "insee_code": "69282",
+          "name": "Meyzieu"
+        },
+        {
+          "insee_code": "69283",
+          "name": "Mions"
+        },
+        {
+          "insee_code": "69284",
+          "name": "Montanay"
+        },
+        {
+          "insee_code": "69286",
+          "name": "Rillieux-la-Pape"
+        },
+        {
+          "insee_code": "69290",
+          "name": "Saint-Priest"
+        },
+        {
+          "insee_code": "69292",
+          "name": "Sathonay-Camp"
+        },
+        {
+          "insee_code": "69293",
+          "name": "Sathonay-Village"
+        },
+        {
+          "insee_code": "69296",
+          "name": "Solaize"
+        }
+      ]
+    }
+  ]
+}

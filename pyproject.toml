@@ -67,6 +67,9 @@ Issues = "https://github.com/zeffut/jobscraper/issues"
 # Le build Vite reste un artefact local dans frontend/dist, pas une donnée du wheel.
 include-package-data = false
 
+[tool.setuptools.package-data]
+"jobscraper.data" = ["*.json"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
