@@ -135,6 +135,18 @@ def source_results(session: Session, run_id: str) -> dict[str, SourceSyncResult]
     }
 
 
+def test_sync_criteria_preserves_saved_search_max_results(session: Session) -> None:
+    """Fails if synchronization silently replaces the persisted source limit."""
+
+    saved_search = SavedSearchRepository(session).create(
+        name="Python",
+        criteria=SearchCriteria(keywords=["python"], max_results=250),
+        sources=["freework"],
+    )
+
+    assert SyncService._criteria(saved_search).max_results == 250
+
+
 def test_mixed_source_outcomes_persist_success_and_finish_partial(
     session: Session,
 ) -> None:

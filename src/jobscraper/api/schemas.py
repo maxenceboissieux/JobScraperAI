@@ -43,6 +43,7 @@ class SearchFields(ApiModel):
     companies: list[str] = Field(default_factory=list)
     exclude_companies: list[str] = Field(default_factory=list)
     salary_min: int | None = Field(default=None, ge=0)
+    max_results: int = Field(default=500, ge=1, le=1000)
     sources: list[SourceName] = Field(min_length=1)
     active: bool = True
 
@@ -77,6 +78,7 @@ class SearchUpdate(ApiModel):
     companies: list[str] | None = None
     exclude_companies: list[str] | None = None
     salary_min: int | None = Field(default=None, ge=0)
+    max_results: int | None = Field(default=None, ge=1, le=1000)
     sources: list[SourceName] | None = Field(default=None, min_length=1)
     active: bool | None = None
 
@@ -98,6 +100,8 @@ class SearchUpdate(ApiModel):
             "companies",
             "excludeCompanies",
             "exclude_companies",
+            "maxResults",
+            "max_results",
             "sources",
             "active",
         }
@@ -137,6 +141,7 @@ class SavedSearchResponse(ApiModel):
     companies: list[str]
     exclude_companies: list[str]
     salary_min: int | None
+    max_results: int
     sources: list[str]
     active: bool
     created_at: datetime

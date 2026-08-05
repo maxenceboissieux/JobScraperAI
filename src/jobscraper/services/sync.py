@@ -590,6 +590,7 @@ class SyncService:
             companies=list(saved_search.companies),
             exclude_companies=list(saved_search.exclude_companies),
             salary_min=saved_search.salary_min,
+            max_results=saved_search.max_results,
         )
 
     @staticmethod

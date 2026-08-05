@@ -43,6 +43,7 @@ def _criteria(
         companies=list(cast(list[str], value("companies"))),
         exclude_companies=list(cast(list[str], value("exclude_companies"))),
         salary_min=cast(int | None, value("salary_min")),
+        max_results=cast(int, value("max_results")),
     )
 
 
@@ -60,6 +61,7 @@ def _response(search: SavedSearch) -> SavedSearchResponse:
         companies=search.companies,
         exclude_companies=search.exclude_companies,
         salary_min=search.salary_min,
+        max_results=search.max_results,
         sources=search.sources,
         active=search.active,
         created_at=search.created_at,
@@ -118,6 +120,7 @@ def update_search(
         "companies",
         "exclude_companies",
         "salary_min",
+        "max_results",
     }
     changed = payload.model_fields_set
     updated = repository.update(

@@ -19,6 +19,7 @@ SEARCH_PAYLOAD = {
     "companies": ["Acme"],
     "excludeCompanies": ["Globex"],
     "salaryMin": 65_000,
+    "maxResults": 250,
     "sources": ["freework", "linkedin"],
     "active": True,
 }
@@ -35,6 +36,7 @@ def test_create_and_list_saved_searches_on_a_clean_database(
     assert body["name"] == "Backend remote"
     assert body["radiusKm"] == 50
     assert body["contractTypes"] == ["cdi"]
+    assert body["maxResults"] == 250
     assert body["sources"] == ["freework", "linkedin"]
     assert "createdAt" in body
     assert "updatedAt" in body
@@ -43,6 +45,54 @@ def test_create_and_list_saved_searches_on_a_clean_database(
     listed = client.get("/api/searches")
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()] == [body["id"]]
+    assert listed.json()[0]["maxResults"] == 250
+
+
+def test_search_defaults_max_results_to_500(client: TestClient) -> None:
+    """Fails if omitted result limits do not use the API contract default."""
+
+    payload = {
+        key: value for key, value in SEARCH_PAYLOAD.items() if key != "maxResults"
+    }
+
+    response = client.post("/api/searches", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["maxResults"] == 500
+
+
+@pytest.mark.parametrize("value", [0, 1001])
+def test_search_rejects_out_of_range_max_results(
+    client: TestClient, value: int
+) -> None:
+    """Fails if invalid per-source result limits reach persistence."""
+
+    response = client.post(
+        "/api/searches", json={**SEARCH_PAYLOAD, "maxResults": value}
+    )
+
+    assert response.status_code == 422
+
+
+def test_patch_rejects_null_max_results(client: TestClient) -> None:
+    """Fails if null result limits are treated as omitted patch fields."""
+
+    search_id = client.post("/api/searches", json=SEARCH_PAYLOAD).json()["id"]
+
+    response = client.patch(f"/api/searches/{search_id}", json={"maxResults": None})
+
+    assert response.status_code == 422
+
+
+def test_patch_updates_max_results(client: TestClient) -> None:
+    """Fails if a result limit edit does not persist through the route."""
+
+    search_id = client.post("/api/searches", json=SEARCH_PAYLOAD).json()["id"]
+
+    response = client.patch(f"/api/searches/{search_id}", json={"maxResults": 1000})
+
+    assert response.status_code == 200
+    assert response.json()["maxResults"] == 1000
 
 
 def test_patch_saved_search_preserves_omitted_criteria(client: TestClient) -> None:
