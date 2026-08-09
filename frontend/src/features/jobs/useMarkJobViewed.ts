@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 
 import { api } from "../../api/client";
 import type { JobFilters, JobsPage } from "../../api/types";
 
 const ERROR_MESSAGE = "Impossible d’enregistrer cette offre comme déjà vue.";
-const MUTATION_SCOPE = { id: "viewed-jobs" } as const;
 type Snapshot = readonly [QueryKey, JobsPage | undefined];
 
 function filtersFromKey(queryKey: QueryKey): JobFilters | undefined {
@@ -48,8 +47,8 @@ function markPageViewed(
 export function useMarkJobViewed() {
   const queryClient = useQueryClient();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const mutationQueue = useRef<Promise<void>>(Promise.resolve());
   const mutation = useMutation({
-    scope: MUTATION_SCOPE,
     mutationFn: (jobId: string) => api.markJobViewed(jobId),
     onMutate: async (jobId) => {
       await queryClient.cancelQueries({ queryKey: ["jobs"] });
@@ -95,7 +94,13 @@ export function useMarkJobViewed() {
   return {
     markViewed(jobId: string) {
       setErrorMessage(null);
-      mutation.mutate(jobId);
+      const current = mutationQueue.current.then(() =>
+        mutation.mutateAsync(jobId),
+      );
+      mutationQueue.current = current.then(
+        () => undefined,
+        () => undefined,
+      );
     },
     errorMessage,
   };

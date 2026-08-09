@@ -397,6 +397,7 @@ describe("grille des offres", () => {
       duplicateState: "none",
     };
     let releaseFirstRequest: (() => void) | undefined;
+    let releaseSecondRequest: (() => void) | undefined;
     let secondViewedAt: string | null = null;
     const markRequests: string[] = [];
     server.use(
@@ -412,20 +413,28 @@ describe("grille des offres", () => {
             { status: 500 },
           );
         }
-        secondViewedAt = "2026-08-09T11:00:00Z";
+        await new Promise<void>((resolve) => {
+          releaseSecondRequest = () => {
+            secondViewedAt = "2026-08-09T11:00:00Z";
+            resolve();
+          };
+        });
         return HttpResponse.json({ id: jobId, viewedAt: secondViewedAt });
       }),
     );
 
-    renderAppWithJobs([POSSIBLE_DUPLICATE_JOB, secondJob], {
-      getJobs: () => ({
-        items: [
-          POSSIBLE_DUPLICATE_JOB,
-          { ...secondJob, viewedAt: secondViewedAt },
-        ],
-        total: 2,
-      }),
-    });
+    const { queryClient } = renderAppWithJobs(
+      [POSSIBLE_DUPLICATE_JOB, secondJob],
+      {
+        getJobs: () => ({
+          items: [
+            POSSIBLE_DUPLICATE_JOB,
+            { ...secondJob, viewedAt: secondViewedAt },
+          ],
+          total: 2,
+        }),
+      },
+    );
     await user.click(
       await screen.findByRole("button", {
         name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
@@ -441,6 +450,18 @@ describe("grille des offres", () => {
 
     expect(new URLSearchParams(window.location.search).get("job")).toBe(secondJob.id);
     expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id]);
+    expect(
+      within(
+        screen.getByRole("button", {
+          name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+        }),
+      ).getByText("✓ Déjà vue"),
+    ).toBeVisible();
+    expect(
+      within(
+        screen.getByRole("button", { name: `Voir l’offre ${secondJob.title}` }),
+      ).queryByText("✓ Déjà vue"),
+    ).not.toBeInTheDocument();
 
     releaseFirstRequest?.();
 
@@ -457,7 +478,26 @@ describe("grille des offres", () => {
       name: `Voir l’offre ${secondJob.title}`,
     });
     expect(within(firstCard).queryByText("✓ Déjà vue")).not.toBeInTheDocument();
-    expect(await within(secondCard).findByText("✓ Déjà vue")).toBeVisible();
+    expect(within(secondCard).getByText("✓ Déjà vue")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Impossible d’enregistrer cette offre comme déjà vue.",
+    );
+
+    releaseSecondRequest?.();
+
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueriesData<JobsPage>({ queryKey: ["jobs"] })
+          .flatMap(([, page]) => page?.items ?? [])
+          .find((job) => job.id === secondJob.id)?.viewedAt,
+      ).toBe("2026-08-09T11:00:00Z"),
+    );
+    expect(
+      within(
+        screen.getByRole("button", { name: `Voir l’offre ${secondJob.title}` }),
+      ).getByText("✓ Déjà vue"),
+    ).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Impossible d’enregistrer cette offre comme déjà vue.",
     );
