@@ -138,6 +138,43 @@ def test_unseen_only_excludes_viewed_jobs_before_pagination(session: Session) ->
     }
 
 
+@pytest.mark.parametrize(
+    ("keep_viewed_at", "merge_viewed_at", "expected_viewed_at"),
+    (
+        (None, None, None),
+        (NOW + timedelta(minutes=1), None, NOW + timedelta(minutes=1)),
+        (None, NOW + timedelta(minutes=1), NOW + timedelta(minutes=1)),
+        (
+            NOW + timedelta(minutes=5),
+            NOW + timedelta(minutes=1),
+            NOW + timedelta(minutes=1),
+        ),
+        (
+            NOW + timedelta(minutes=1),
+            NOW + timedelta(minutes=5),
+            NOW + timedelta(minutes=1),
+        ),
+    ),
+)
+def test_merge_canonical_jobs_preserves_earliest_viewed_timestamp(
+    session: Session,
+    keep_viewed_at: datetime | None,
+    merge_viewed_at: datetime | None,
+    expected_viewed_at: datetime | None,
+) -> None:
+    jobs = JobRepository(session)
+    keep = jobs.upsert_listing(offer("merge-viewed-keep"), seen_at=NOW)
+    merge = jobs.upsert_listing(offer("merge-viewed-source"), seen_at=NOW)
+    if keep_viewed_at is not None:
+        jobs.mark_viewed(keep.id, viewed_at=keep_viewed_at)
+    if merge_viewed_at is not None:
+        jobs.mark_viewed(merge.id, viewed_at=merge_viewed_at)
+
+    merged = jobs.merge_canonical_jobs(keep.id, merge.id)
+
+    assert merged.viewed_at == expected_viewed_at
+
+
 def test_job_filters_association_and_pagination_use_persisted_offers(
     session: Session,
 ) -> None:

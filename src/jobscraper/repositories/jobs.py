@@ -135,6 +135,7 @@ class JobRepository:
         if keep.pk == merge.pk:
             return keep
 
+        keep.viewed_at = self._oldest_timestamp(keep.viewed_at, merge.viewed_at)
         self._preserve_detail_cache(keep, merge)
         self._merge_search_listings(keep.pk, merge.pk)
         self.session.execute(
@@ -481,6 +482,15 @@ class JobRepository:
         left: datetime | None, right: datetime | None
     ) -> datetime | None:
         return max(
+            (timestamp for timestamp in (left, right) if timestamp is not None),
+            default=None,
+        )
+
+    @staticmethod
+    def _oldest_timestamp(
+        left: datetime | None, right: datetime | None
+    ) -> datetime | None:
+        return min(
             (timestamp for timestamp in (left, right) if timestamp is not None),
             default=None,
         )
