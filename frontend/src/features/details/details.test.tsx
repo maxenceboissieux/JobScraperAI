@@ -44,6 +44,7 @@ const JOB: JobCard = {
   experienceLevel: "Senior",
   remote: true,
   postedAt: "2026-08-03T08:00:00Z",
+  viewedAt: null,
   sources: [
     { source: "Free-Work", url: "https://example.test/free-work", active: true },
   ],

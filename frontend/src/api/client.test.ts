@@ -46,6 +46,7 @@ const jobDetails: JobDetails = {
   experienceLevel: "senior",
   remote: false,
   postedAt: null,
+  viewedAt: null,
   sources: [{ source: "freework", url: "https://example.test/job", active: true }],
   duplicateState: "none",
   possibleDuplicates: [],

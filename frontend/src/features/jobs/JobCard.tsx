@@ -26,13 +26,16 @@ export function JobCard({ job, onSelect }: JobCardProps) {
   ].filter((value): value is string => value !== null && value !== "");
 
   return (
-    <article className="job-card">
+    <article className={`job-card${job.viewedAt ? " job-card--viewed" : ""}`}>
       <button
         type="button"
         className="job-card__button"
         onClick={() => onSelect(job.id)}
         aria-label={`Voir l’offre ${job.title}`}
       >
+        {job.viewedAt ? (
+          <span className="job-card__viewed-label">✓ Déjà vue</span>
+        ) : null}
         <h2>{job.title}</h2>
         {metadata.length > 0 ? (
           <p className="job-card__metadata">{metadata.join(" · ")}</p>

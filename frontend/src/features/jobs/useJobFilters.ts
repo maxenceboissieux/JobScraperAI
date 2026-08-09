@@ -15,6 +15,7 @@ const FILTER_KEYS = [
   "source",
   "competence",
   "doublon",
+  "unseenOnly",
   "tri",
 ] as const;
 
@@ -64,6 +65,7 @@ type ParsedFilters = {
   sources?: string[];
   skills?: string[];
   duplicateState?: DuplicateState;
+  unseenOnly?: boolean;
   sort: Sort;
 };
 
@@ -79,6 +81,7 @@ export type JobFilterValues = {
   sources: string[] | undefined;
   skills: string[] | undefined;
   duplicateState: DuplicateState | undefined;
+  unseenOnly: boolean | undefined;
   sort: Sort;
 };
 
@@ -134,6 +137,7 @@ function parseFilters(params: URLSearchParams): ParsedFilters {
         ? false
         : undefined;
   const savedSearchId = params.get("search") || undefined;
+  const unseenOnly = params.get("unseenOnly") === "true" ? true : undefined;
 
   return {
     ...(savedSearchId === undefined ? {} : { savedSearchId }),
@@ -162,6 +166,7 @@ function parseFilters(params: URLSearchParams): ParsedFilters {
       ? {}
       : { skills: uniqueValues(params, "competence") }),
     ...(duplicateState === undefined ? {} : { duplicateState }),
+    ...(unseenOnly === undefined ? {} : { unseenOnly }),
     sort,
   };
 }
@@ -193,6 +198,7 @@ function canonicalParams(
   if (parsed.duplicateState !== undefined) {
     next.append("doublon", parsed.duplicateState);
   }
+  if (parsed.unseenOnly === true) next.append("unseenOnly", "true");
   if (parsed.sort !== "date") next.append("tri", parsed.sort);
   return next;
 }
@@ -218,6 +224,7 @@ function writeFilter<K extends keyof JobFilterValues>(
     sources: "source",
     skills: "competence",
     duplicateState: "doublon",
+    unseenOnly: "unseenOnly",
     sort: "tri",
   };
   const urlKey = urlKeys[key];
@@ -241,6 +248,7 @@ function countActiveFilters(parsed: ParsedFilters): number {
     parsed.sources,
     parsed.skills,
     parsed.duplicateState,
+    parsed.unseenOnly,
   ].filter((value) => value !== undefined).length;
 }
 

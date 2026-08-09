@@ -21,6 +21,7 @@
 }
 
 .job-card__button {
+  position: relative;
   display: flex;
   width: 100%;
   min-height: 210px;
@@ -33,6 +34,27 @@
   text-align: left;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
+}
+
+.job-card--viewed,
+.job-card--viewed .job-card__button {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--paper) 88%, var(--line));
+}
+
+.job-card--viewed .job-card__button > :not(.job-card__viewed-label) {
+  opacity: 0.62;
+}
+
+.job-card__viewed-label {
+  display: inline-flex;
+  margin: 0 0 10px auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
 }
 
 .job-card__button:hover,

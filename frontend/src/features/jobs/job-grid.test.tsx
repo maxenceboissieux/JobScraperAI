@@ -43,6 +43,7 @@ const POSSIBLE_DUPLICATE_JOB: JobCard = {
   experienceLevel: "Senior",
   remote: true,
   postedAt: "2026-08-03T08:00:00Z",
+  viewedAt: null,
   sources: [
     { source: "Free-Work", url: "https://example.test/free-work", active: true },
     { source: "LinkedIn", url: "https://example.test/linkedin", active: true },
@@ -103,6 +104,38 @@ describe("grille des offres", () => {
     expect(within(card).getByText("Free-Work")).toBeVisible();
     expect(within(card).getByText("LinkedIn")).toBeVisible();
     expect(within(card).getByText("Doublon possible")).toBeVisible();
+  });
+
+  it("attenuates a viewed card and exposes the explicit label", async () => {
+    server.use(
+      http.get("*/api/jobs", () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...POSSIBLE_DUPLICATE_JOB,
+              viewedAt: "2026-08-09T10:00:00Z",
+            },
+          ],
+          total: 1,
+          limit: 24,
+          offset: 0,
+        }),
+      ),
+    );
+
+    renderAppWithJobs([{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: "2026-08-09T10:00:00Z" }]);
+
+    const card = await screen.findByRole("article");
+    expect(card).toHaveClass("job-card--viewed");
+    expect(within(card).getByText("✓ Déjà vue")).toBeVisible();
+  });
+
+  it("does not change the presentation of an unseen card", async () => {
+    renderAppWithJobs([{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: null }]);
+
+    const card = await screen.findByRole("article");
+    expect(card).not.toHaveClass("job-card--viewed");
+    expect(within(card).queryByText("✓ Déjà vue")).not.toBeInTheDocument();
   });
 
   it("traduit les slugs API sur les cartes", async () => {

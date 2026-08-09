@@ -114,9 +114,15 @@ export type JobCard = {
   experienceLevel: string | null;
   remote: boolean | null;
   postedAt: string | null;
+  viewedAt: string | null;
   sources: SourceLink[];
   duplicateState: DuplicateState;
   possibleDuplicates: PossibleDuplicate[];
+};
+
+export type ViewedJob = {
+  id: string;
+  viewedAt: string;
 };
 
 export type JobDetails = JobCard & {
@@ -148,6 +154,7 @@ export type JobFilters = {
   sources?: string[];
   skills?: string[];
   duplicateState?: DuplicateState;
+  unseenOnly?: boolean;
   sort?: "date" | "relevance";
   limit: number;
   offset: number;

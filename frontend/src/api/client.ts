@@ -189,6 +189,7 @@ function jobsQuery(filters: JobFilters): string {
   appendValues(params, "source", filters.sources);
   appendValues(params, "skill", filters.skills);
   appendValue(params, "duplicateState", filters.duplicateState);
+  appendValue(params, "unseenOnly", filters.unseenOnly);
   appendValue(params, "sort", filters.sort);
   appendValue(params, "limit", filters.limit);
   appendValue(params, "offset", filters.offset);

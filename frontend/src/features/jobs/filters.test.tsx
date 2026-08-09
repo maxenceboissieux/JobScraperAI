@@ -15,6 +15,7 @@ const origin = "http://localhost:3000";
 const observedFilterRenders: Array<{
   savedSearchId?: string;
   sources?: string[];
+  unseenOnly?: boolean;
   offset: number;
 }> = [];
 
@@ -91,6 +92,7 @@ function FilterHarness() {
       ? {}
       : { savedSearchId: filters.savedSearchId }),
     ...(filters.sources === undefined ? {} : { sources: filters.sources }),
+    ...(filters.unseenOnly === undefined ? {} : { unseenOnly: filters.unseenOnly }),
     offset: filters.offset ?? 0,
   });
 
@@ -116,6 +118,12 @@ function FilterHarness() {
       </button>
       <button type="button" onClick={() => setFilter("sources", ["linkedin"])}>
         LinkedIn seulement
+      </button>
+      <button
+        type="button"
+        onClick={() => setFilter("unseenOnly", filters.unseenOnly ? undefined : true)}
+      >
+        Non vues uniquement
       </button>
       <button type="button" onClick={() => navigate(-1)}>
         Retour historique
@@ -152,6 +160,7 @@ function renderedFilters() {
     salaryMin?: number;
     companies?: string[];
     sources?: string[];
+    unseenOnly?: boolean;
     skills?: string[];
     duplicateState?: string;
     sort?: string;
@@ -266,6 +275,23 @@ describe("filtres d’offres pilotés par l’URL", () => {
     expect(renderedFilters().offset).toBe(48);
     await user.click(screen.getByRole("button", { name: "LinkedIn seulement" }));
     expect(renderedFilters().offset).toBe(0);
+  });
+
+  it("serializes and restores the unseen-only filter", async () => {
+    const user = userEvent.setup();
+    renderFilters("/?period=3d");
+
+    await user.click(screen.getByRole("button", { name: "Non vues uniquement" }));
+
+    expect(window.location.search).toContain("unseenOnly=true");
+    expect(renderedFilters()).toMatchObject({ unseenOnly: true, offset: 0 });
+  });
+
+  it("removes false or invalid unseen-only values from the canonical URL", async () => {
+    renderFilters("/?period=3d&unseenOnly=false");
+
+    await waitFor(() => expect(window.location.search).not.toContain("unseenOnly"));
+    expect(renderedFilters()).not.toHaveProperty("unseenOnly");
   });
 
   it("n’expose jamais l’ancien offset pendant une navigation ou un changement de recherche", async () => {

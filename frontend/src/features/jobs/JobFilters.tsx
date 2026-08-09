@@ -349,6 +349,19 @@ export function JobFilters({
           </select>
         </div>
 
+        <div className="job-filter-field job-filter-field--toggle">
+          <label className="job-filter-toggle">
+            <input
+              type="checkbox"
+              checked={filters.unseenOnly === true}
+              onChange={(event) =>
+                setFilter("unseenOnly", event.currentTarget.checked ? true : undefined)
+              }
+            />
+            <span>Non vues uniquement</span>
+          </label>
+        </div>
+
         <div className="job-filter-field">
           <label htmlFor="job-sort">Trier par</label>
           <select

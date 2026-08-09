@@ -426,6 +426,25 @@ select:focus-visible {
   min-width: 220px;
 }
 
+.job-filter-field--toggle {
+  align-self: flex-end;
+}
+
+.job-filter-toggle {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.job-filter-toggle input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+}
+
 .job-filter-field > label,
 .job-filter-label {
   display: block;
