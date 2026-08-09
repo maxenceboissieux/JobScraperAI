@@ -80,6 +80,64 @@ def test_upsert_listing_is_idempotent_and_refreshes_the_canonical_offer(
     assert listing.last_seen_at == NOW + timedelta(hours=1)
 
 
+def test_mark_viewed_persists_only_the_first_timestamp(session: Session) -> None:
+    jobs = JobRepository(session)
+    job = jobs.upsert_listing(offer("viewed-once"), seen_at=NOW)
+    first_view = NOW + timedelta(minutes=1)
+    later_view = NOW + timedelta(minutes=5)
+
+    first = jobs.mark_viewed(job.id, viewed_at=first_view)
+    second = jobs.mark_viewed(job.id, viewed_at=later_view)
+
+    assert first.viewed_at == first_view
+    assert second.viewed_at == first_view
+    with pytest.raises(LookupError, match="Canonical job does not exist"):
+        jobs.mark_viewed("00000000-0000-0000-0000-000000000000")
+
+
+def test_competing_mark_viewed_requests_preserve_the_first_commit(
+    tmp_path: Path,
+) -> None:
+    engine, session_factory = create_engine_and_session(
+        f"sqlite:///{tmp_path / 'viewed-race.db'}"
+    )
+    Base.metadata.create_all(engine)
+    with session_factory.begin() as seed_session:
+        seeded = JobRepository(seed_session).upsert_listing(
+            offer("viewed-race"), seen_at=NOW
+        )
+        job_id = seeded.id
+
+    first_view = NOW + timedelta(minutes=1)
+    later_view = NOW + timedelta(minutes=2)
+    with session_factory() as first_session, session_factory() as second_session:
+        assert JobRepository(second_session).get_job(job_id) is not None
+        JobRepository(first_session).mark_viewed(job_id, viewed_at=first_view)
+        first_session.commit()
+        result = JobRepository(second_session).mark_viewed(job_id, viewed_at=later_view)
+        second_session.commit()
+
+    with session_factory() as verification_session:
+        persisted = JobRepository(verification_session).get_job(job_id)
+        assert persisted is not None
+        assert persisted.viewed_at == first_view
+
+
+def test_unseen_only_excludes_viewed_jobs_before_pagination(session: Session) -> None:
+    jobs = JobRepository(session)
+    viewed = jobs.upsert_listing(offer("viewed-filter", posted_at=NOW), seen_at=NOW)
+    unseen = jobs.upsert_listing(
+        offer("unseen-filter", posted_at=NOW - timedelta(hours=1)), seen_at=NOW
+    )
+    jobs.mark_viewed(viewed.id, viewed_at=NOW + timedelta(minutes=1))
+
+    assert [job.id for job in jobs.list_jobs(unseen_only=True, limit=1)] == [unseen.id]
+    assert {job.id for job in jobs.list_jobs(unseen_only=False)} == {
+        viewed.id,
+        unseen.id,
+    }
+
+
 def test_job_filters_association_and_pagination_use_persisted_offers(
     session: Session,
 ) -> None:

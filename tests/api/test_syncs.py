@@ -433,7 +433,7 @@ def test_startup_upgrades_an_existing_revision_to_head(
             )
     finally:
         engine.dispose()
-    assert revision == "0003"
+    assert revision == "0004"
 
 
 def test_explicit_database_url_wins_over_conflicting_environment(
@@ -456,7 +456,7 @@ def test_explicit_database_url_wins_over_conflicting_environment(
             )
     finally:
         engine.dispose()
-    assert revision == "0003"
+    assert revision == "0004"
     assert not (tmp_path / "environment.db").exists()
 
 
@@ -478,7 +478,7 @@ def test_default_database_creates_parent_in_a_fresh_working_directory(
         with engine.connect() as connection:
             assert (
                 connection.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0003"
+                == "0004"
             )
     finally:
         engine.dispose()

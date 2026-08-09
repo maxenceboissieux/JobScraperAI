@@ -185,6 +185,24 @@ class JobRepository:
             select(CanonicalJob).where(CanonicalJob.id == job_id)
         )
 
+    def mark_viewed(
+        self, job_id: str, viewed_at: datetime | None = None
+    ) -> CanonicalJob:
+        """Persist the first observed card click for a canonical job."""
+
+        job = self.get_job(job_id)
+        if job is None:
+            raise LookupError("Canonical job does not exist")
+        observed_at = viewed_at or utc_now()
+        self.session.execute(
+            update(CanonicalJob)
+            .where(CanonicalJob.pk == job.pk, CanonicalJob.viewed_at.is_(None))
+            .values(viewed_at=observed_at)
+        )
+        self.session.flush()
+        self.session.refresh(job, attribute_names=["viewed_at"])
+        return job
+
     def get_listing(self, job_id: str) -> SourceListing | None:
         """Return a source listing for a canonical-job UUID or its own public UUID."""
 
@@ -214,6 +232,7 @@ class JobRepository:
         sources: Sequence[str] | None = None,
         skills: Sequence[str] | None = None,
         duplicate_state: str | None = None,
+        unseen_only: bool = False,
         sort: str | None = None,
         limit: int | None = None,
         offset: int = 0,
@@ -244,6 +263,8 @@ class JobRepository:
         query_key = _normalise(query) if query else None
 
         def matches(job: CanonicalJob) -> bool:
+            if unseen_only and job.viewed_at is not None:
+                return False
             if attached_job_pks is not None and job.pk not in attached_job_pks:
                 return False
             if posted_since is not None and (

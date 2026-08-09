@@ -94,6 +94,7 @@ class CanonicalJob(Base):
     experience_level: Mapped[str | None] = mapped_column(String(50))
     remote: Mapped[bool | None] = mapped_column(Boolean)
     posted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
+    viewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     skills: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     benefits: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     details_fetched_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

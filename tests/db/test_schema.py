@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
 from alembic.config import Config
-from jobscraper.db.base import Base
+from jobscraper.db.base import Base, UTCDateTime
 from jobscraper.db.models import CanonicalJob, DuplicateRelation
 from jobscraper.db.session import create_engine_and_session
 
@@ -93,6 +93,50 @@ def test_canonical_detail_provenance_is_a_required_json_mapping(
     assert not reflected["detail_provenance"]["nullable"]
 
 
+def test_canonical_job_viewed_at_is_nullable_utc_timestamp() -> None:
+    column = Base.metadata.tables["canonical_jobs"].c.viewed_at
+
+    assert isinstance(column.type, UTCDateTime)
+    assert column.nullable
+
+
+def test_viewed_at_migration_keeps_existing_jobs_unseen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'legacy-viewed.db'}"
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    monkeypatch.setenv("JOBSCRAPER_DATABASE_URL", database_url)
+    command.upgrade(config, "0003")
+    engine, _ = create_engine_and_session(database_url)
+    with engine.begin() as connection:
+        connection.execute(sa.text("""
+            INSERT INTO canonical_jobs
+                (id, title, normalized_title, company, normalized_company,
+                 location, normalized_location, salary_currency, skills,
+                 benefits, detail_provenance, created_at, updated_at)
+            VALUES
+                ('legacy-job', 'Backend', 'backend', 'Acme', 'acme',
+                 'Lyon', 'lyon', 'EUR', '[]', '[]', '{}',
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """))
+
+    command.upgrade(config, "head")
+
+    reflected = {
+        column["name"]: column
+        for column in inspect(engine).get_columns("canonical_jobs")
+    }
+    assert reflected["viewed_at"]["nullable"]
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                sa.text("SELECT viewed_at FROM canonical_jobs WHERE id='legacy-job'")
+            )
+            is None
+        )
+
+
 def test_required_unique_constraints_are_declared() -> None:
     listings = Base.metadata.tables["source_listings"]
     relations = Base.metadata.tables["duplicate_relations"]
@@ -167,9 +211,12 @@ def test_max_results_migration_defaults_existing_saved_searches_to_500(
         """))
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert connection.scalar(
-            sa.text("SELECT max_results FROM saved_searches WHERE id='legacy'")
-        ) == 500
+        assert (
+            connection.scalar(
+                sa.text("SELECT max_results FROM saved_searches WHERE id='legacy'")
+            )
+            == 500
+        )
 
 
 def _database_with_two_jobs(
