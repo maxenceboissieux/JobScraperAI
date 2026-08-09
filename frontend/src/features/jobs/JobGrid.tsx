@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 import type { JobFilters } from "../../api/types";
 import { JobCard } from "./JobCard";
 import { JobGridSkeleton } from "./JobGridSkeleton";
+import { useMarkJobViewed } from "./useMarkJobViewed";
 
 type JobGridProps = {
   filters: JobFilters;
@@ -12,10 +13,15 @@ type JobGridProps = {
 };
 
 export function JobGrid({ filters, onPageChange, onSelectJob }: JobGridProps) {
+  const { markViewed, errorMessage } = useMarkJobViewed();
   const jobsQuery = useQuery({
     queryKey: ["jobs", filters],
     queryFn: ({ signal }) => api.getJobs(filters, signal),
   });
+  const selectFromCard = (jobId: string) => {
+    onSelectJob(jobId);
+    markViewed(jobId);
+  };
 
   if (jobsQuery.isPending) {
     return <JobGridSkeleton />;
@@ -41,6 +47,11 @@ export function JobGrid({ filters, onPageChange, onSelectJob }: JobGridProps) {
   if (page.items.length === 0) {
     return (
       <section className="job-grid-state job-grid-state--empty">
+        {errorMessage ? (
+          <p className="status-banner status-banner--error" role="alert">
+            {errorMessage}
+          </p>
+        ) : null}
         <h2>Aucune offre ne correspond à ces filtres</h2>
         <p>Modifiez vos filtres ou élargissez la période de publication.</p>
       </section>
@@ -52,12 +63,17 @@ export function JobGrid({ filters, onPageChange, onSelectJob }: JobGridProps) {
 
   return (
     <section className="job-results" aria-label="Offres d’emploi">
+      {errorMessage ? (
+        <p className="status-banner status-banner--error" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
       <p className="job-results__count" aria-live="polite">
         {page.total} offre{page.total > 1 ? "s" : ""}
       </p>
       <div className="job-grid">
         {page.items.map((job) => (
-          <JobCard job={job} key={job.id} onSelect={onSelectJob} />
+          <JobCard job={job} key={job.id} onSelect={selectFromCard} />
         ))}
       </div>
       {hasPreviousPage || hasNextPage ? (

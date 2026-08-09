@@ -1,10 +1,15 @@
 import { QueryClient } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import type { JobCard, SavedSearch } from "../../api/types";
+import type {
+  JobCard,
+  JobFilters,
+  JobsPage,
+  SavedSearch,
+} from "../../api/types";
 import { App } from "../../app/App";
 import { AppProviders } from "../../app/providers";
 import { server } from "../../test/server";
@@ -63,30 +68,54 @@ const POSSIBLE_DUPLICATE_JOB: JobCard = {
 
 function renderAppWithJobs(
   jobs: JobCard[],
-  options: { initialUrl?: string; total?: number } = {},
+  options: {
+    initialUrl?: string;
+    total?: number;
+    queryClient?: QueryClient;
+    getJobs?: (url: URL) => { items: JobCard[]; total: number };
+  } = {},
 ) {
   window.history.replaceState({}, "", options.initialUrl ?? "/?search=search-python");
   server.use(
     http.get(`${origin}/api/searches`, () => HttpResponse.json([savedSearch])),
     http.get(`${origin}/api/jobs`, ({ request }) => {
       const url = new URL(request.url);
-      return HttpResponse.json({
+      const response = options.getJobs?.(url) ?? {
         items: jobs,
         total: options.total ?? jobs.length,
+      };
+      return HttpResponse.json({
+        ...response,
         limit: Number(url.searchParams.get("limit")),
         offset: Number(url.searchParams.get("offset")),
       });
     }),
+    http.get(`${origin}/api/jobs/:id`, ({ params }) =>
+      HttpResponse.json({
+        ...(jobs[0] ?? POSSIBLE_DUPLICATE_JOB),
+        id: String(params.id),
+        description: null,
+        skills: [],
+        benefits: [],
+        cacheState: "fresh",
+        updatedAt: "2026-08-09T10:00:00Z",
+        warning: null,
+      }),
+    ),
   );
-  return renderApplication();
+  return renderApplication(options.queryClient);
 }
 
-function renderApplication() {
-  const queryClient = new QueryClient({
+function createQueryClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
+}
+
+function renderApplication(queryClient = createQueryClient()) {
   return {
     user: userEvent.setup(),
+    queryClient,
     ...render(
       <AppProviders queryClient={queryClient}>
         <App />
@@ -96,6 +125,17 @@ function renderApplication() {
 }
 
 describe("grille des offres", () => {
+  beforeEach(() => {
+    server.use(
+      http.post("*/api/jobs/:id/viewed", ({ params }) =>
+        HttpResponse.json({
+          id: String(params.id),
+          viewedAt: "2026-08-09T10:00:00Z",
+        }),
+      ),
+    );
+  });
+
   it("affiche les sources et le doublon possible", async () => {
     renderAppWithJobs([POSSIBLE_DUPLICATE_JOB]);
 
@@ -233,6 +273,206 @@ describe("grille des offres", () => {
     expect(params.get("search")).toBe("search-python");
     expect(params.get("period")).toBe("7d");
     expect(params.get("source")).toBe("freework");
+  });
+
+  it("opens details immediately and posts viewed state from a grid card", async () => {
+    const user = userEvent.setup();
+    let markRequests = 0;
+    let serverViewedAt: string | null = null;
+    server.use(
+      http.post("*/api/jobs/:id/viewed", ({ params }) => {
+        markRequests += 1;
+        serverViewedAt = "2026-08-09T10:00:00Z";
+        return HttpResponse.json({
+          id: String(params.id),
+          viewedAt: serverViewedAt,
+        });
+      }),
+    );
+
+    renderAppWithJobs([{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: null }], {
+      getJobs: () => ({
+        items: [{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: serverViewedAt }],
+        total: 1,
+      }),
+    });
+    await user.click(
+      await screen.findByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    );
+
+    expect(window.location.search).toContain(`job=${POSSIBLE_DUPLICATE_JOB.id}`);
+    await waitFor(() => expect(markRequests).toBe(1));
+    expect(await screen.findByText("✓ Déjà vue")).toBeVisible();
+  });
+
+  it("removes the card and decrements total immediately with unseen-only enabled", async () => {
+    const user = userEvent.setup();
+    let releaseRequest: (() => void) | undefined;
+    server.use(
+      http.post("*/api/jobs/:id/viewed", async ({ params }) => {
+        await new Promise<void>((resolve) => {
+          releaseRequest = resolve;
+        });
+        return HttpResponse.json({
+          id: String(params.id),
+          viewedAt: "2026-08-09T10:00:00Z",
+        });
+      }),
+    );
+
+    renderAppWithJobs([{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: null }], {
+      initialUrl: "/?period=3d&unseenOnly=true",
+    });
+    await screen.findByRole("button", {
+      name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+    });
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("search")).toBe(
+        "search-python",
+      ),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(window.location.search).toContain(`job=${POSSIBLE_DUPLICATE_JOB.id}`);
+    releaseRequest?.();
+  });
+
+  it("restores every cached page and reports an accessible error when marking fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post("*/api/jobs/:id/viewed", () =>
+        HttpResponse.json({ detail: "database unavailable" }, { status: 500 }),
+      ),
+    );
+
+    renderAppWithJobs([{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: null }], {
+      initialUrl: "/?period=3d&unseenOnly=true",
+    });
+    await screen.findByRole("button", {
+      name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+    });
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("search")).toBe(
+        "search-python",
+      ),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Impossible d’enregistrer cette offre comme déjà vue.",
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    ).toBeVisible();
+    expect(window.location.search).toContain(`job=${POSSIBLE_DUPLICATE_JOB.id}`);
+  });
+
+  it("reconciles every cached jobs page after an optimistic mark", async () => {
+    const user = userEvent.setup();
+    let releaseRequest: (() => void) | undefined;
+    let serverViewedAt: string | null = null;
+    let jobsRequests = 0;
+    server.use(
+      http.post("*/api/jobs/:id/viewed", async ({ params }) => {
+        await new Promise<void>((resolve) => {
+          releaseRequest = () => {
+            serverViewedAt = "2026-08-09T10:00:00Z";
+            resolve();
+          };
+        });
+        return HttpResponse.json({
+          id: String(params.id),
+          viewedAt: serverViewedAt,
+        });
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
+    });
+    const normalFilters: JobFilters = {
+      savedSearchId: "search-python",
+      period: "3d",
+      sort: "date",
+      limit: 24,
+      offset: 0,
+    };
+    const unseenFilters: JobFilters = { ...normalFilters, unseenOnly: true };
+    const page: JobsPage = {
+      items: [{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: null }],
+      total: 1,
+      limit: 24,
+      offset: 0,
+    };
+    queryClient.setQueryData(["jobs", normalFilters], page);
+    queryClient.setQueryData(["jobs", unseenFilters], page);
+
+    renderAppWithJobs([{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: null }], {
+      initialUrl: "/?search=search-python&period=3d&unseenOnly=true",
+      queryClient,
+      getJobs: (url) => {
+        jobsRequests += 1;
+        const job = { ...POSSIBLE_DUPLICATE_JOB, viewedAt: serverViewedAt };
+        const hidesViewed =
+          url.searchParams.get("unseenOnly") === "true" && serverViewedAt !== null;
+        return { items: hidesViewed ? [] : [job], total: hidesViewed ? 0 : 1 };
+      },
+    });
+    await waitFor(() => expect(jobsRequests).toBeGreaterThan(0));
+    await user.click(
+      await screen.findByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<JobsPage>(["jobs", normalFilters])?.items[0]
+          ?.viewedAt,
+      ).not.toBeNull();
+    });
+    expect(queryClient.getQueryData<JobsPage>(["jobs", unseenFilters])).toMatchObject({
+      items: [],
+      total: 0,
+    });
+
+    const requestsBeforeRelease = jobsRequests;
+    releaseRequest?.();
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<JobsPage>(["jobs", normalFilters])?.items[0],
+      ).toMatchObject({
+        id: POSSIBLE_DUPLICATE_JOB.id,
+        viewedAt: "2026-08-09T10:00:00Z",
+      }),
+    );
+    await waitFor(() => expect(jobsRequests).toBeGreaterThan(requestsBeforeRelease));
+    expect(queryClient.getQueryData<JobsPage>(["jobs", unseenFilters])).toMatchObject({
+      items: [],
+      total: 0,
+    });
   });
 
   it("n’invente pas les informations absentes d’une offre", async () => {

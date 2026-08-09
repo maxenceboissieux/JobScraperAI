@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JobCard, JobDetails, SavedSearch } from "../../api/types";
 import { App } from "../../app/App";
@@ -134,10 +134,31 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+beforeEach(() => {
+  server.use(
+    http.post("*/api/jobs/:id/viewed", ({ params }) =>
+      HttpResponse.json({
+        id: String(params.id),
+        viewedAt: "2026-08-09T10:00:00Z",
+      }),
+    ),
+  );
+});
+
 describe("détails d’une offre", () => {
   it("ouvre les détails et suit un doublon possible", async () => {
     vi.setSystemTime(new Date("2026-08-04T12:00:00Z"));
     const detailIds: string[] = [];
+    let markRequests = 0;
+    server.use(
+      http.post("*/api/jobs/:id/viewed", ({ params }) => {
+        markRequests += 1;
+        return HttpResponse.json({
+          id: String(params.id),
+          viewedAt: "2026-08-09T10:00:00Z",
+        });
+      }),
+    );
     const { user } = renderAppWithJobs([JOB], {
       details: DETAILS_WITH_DUPLICATE,
       onDetailsRequest: (id) => detailIds.push(id),
@@ -150,6 +171,7 @@ describe("détails d’une offre", () => {
     expect(
       await screen.findByRole("dialog", { name: "Détails de l’offre" }),
     ).toBeVisible();
+    await waitFor(() => expect(markRequests).toBe(1));
     expect(screen.getByText("Détails mis à jour aujourd’hui")).toBeVisible();
     await user.click(
       screen.getByRole("button", {
@@ -163,6 +185,28 @@ describe("détails d’une offre", () => {
     await waitFor(() => {
       expect(detailIds).toEqual(["job-python", POSSIBLE_DUPLICATE_ID]);
     });
+    expect(markRequests).toBe(1);
+  });
+
+  it("does not mark a job viewed when details are opened from the URL", async () => {
+    let markRequests = 0;
+    server.use(
+      http.post("*/api/jobs/:id/viewed", () => {
+        markRequests += 1;
+        return HttpResponse.json({
+          id: JOB.id,
+          viewedAt: "2026-08-09T10:00:00Z",
+        });
+      }),
+    );
+
+    renderAppWithJobs([JOB], {
+      details: DETAILS_WITH_DUPLICATE,
+      initialUrl: `/?period=3d&job=${JOB.id}`,
+    });
+    await screen.findByRole("dialog", { name: "Détails de l’offre" });
+
+    expect(markRequests).toBe(0);
   });
 
   it("ferme le drawer sans perdre les filtres et restaure le focus", async () => {

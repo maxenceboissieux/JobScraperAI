@@ -10,6 +10,7 @@ import type {
   SourceName,
   StartSyncRequest,
   SyncRun,
+  ViewedJob,
 } from "./types";
 
 export class ApiError extends Error {
@@ -233,6 +234,13 @@ export const api = {
 
   getJob(id: string, signal?: AbortSignal): Promise<JobDetails> {
     return request(`/api/jobs/${encodeURIComponent(id)}`, { signal });
+  },
+
+  markJobViewed(id: string, signal?: AbortSignal): Promise<ViewedJob> {
+    return request(`/api/jobs/${encodeURIComponent(id)}/viewed`, {
+      method: "POST",
+      signal,
+    });
   },
 
   startSync(payload: StartSyncRequest, signal?: AbortSignal): Promise<SyncRun> {
