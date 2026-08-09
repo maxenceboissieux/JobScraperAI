@@ -168,6 +168,11 @@ describe("grille des offres", () => {
     const card = await screen.findByRole("article");
     expect(card).toHaveClass("job-card--viewed");
     expect(within(card).getByText("✓ Déjà vue")).toBeVisible();
+    expect(
+      within(card).getByRole("button", {
+        name: "Voir l’offre Développeur Python, déjà vue",
+      }),
+    ).toBeVisible();
   });
 
   it("does not change the presentation of an unseen card", async () => {
@@ -453,13 +458,15 @@ describe("grille des offres", () => {
     expect(
       within(
         screen.getByRole("button", {
-          name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+          name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}, déjà vue`,
         }),
       ).getByText("✓ Déjà vue"),
     ).toBeVisible();
     expect(
       within(
-        screen.getByRole("button", { name: `Voir l’offre ${secondJob.title}` }),
+        screen.getByRole("button", {
+          name: `Voir l’offre ${secondJob.title}`,
+        }),
       ).queryByText("✓ Déjà vue"),
     ).not.toBeInTheDocument();
 
@@ -475,7 +482,7 @@ describe("grille des offres", () => {
       name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
     });
     const secondCard = screen.getByRole("button", {
-      name: `Voir l’offre ${secondJob.title}`,
+      name: `Voir l’offre ${secondJob.title}, déjà vue`,
     });
     expect(within(firstCard).queryByText("✓ Déjà vue")).not.toBeInTheDocument();
     expect(within(secondCard).getByText("✓ Déjà vue")).toBeVisible();
@@ -495,7 +502,9 @@ describe("grille des offres", () => {
     );
     expect(
       within(
-        screen.getByRole("button", { name: `Voir l’offre ${secondJob.title}` }),
+        screen.getByRole("button", {
+          name: `Voir l’offre ${secondJob.title}, déjà vue`,
+        }),
       ).getByText("✓ Déjà vue"),
     ).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent(
