@@ -386,6 +386,166 @@ describe("grille des offres", () => {
     expect(window.location.search).toContain(`job=${POSSIBLE_DUPLICATE_JOB.id}`);
   });
 
+  it("serializes rapid marks so a failed request cannot roll back a later success", async () => {
+    const user = userEvent.setup();
+    const secondJob: JobCard = {
+      ...POSSIBLE_DUPLICATE_JOB,
+      id: "job-data",
+      title: "Data Engineer",
+      viewedAt: null,
+      possibleDuplicates: [],
+      duplicateState: "none",
+    };
+    let releaseFirstRequest: (() => void) | undefined;
+    let secondViewedAt: string | null = null;
+    const markRequests: string[] = [];
+    server.use(
+      http.post("*/api/jobs/:id/viewed", async ({ params }) => {
+        const jobId = String(params.id);
+        markRequests.push(jobId);
+        if (jobId === POSSIBLE_DUPLICATE_JOB.id) {
+          await new Promise<void>((resolve) => {
+            releaseFirstRequest = resolve;
+          });
+          return HttpResponse.json(
+            { detail: "database unavailable" },
+            { status: 500 },
+          );
+        }
+        secondViewedAt = "2026-08-09T11:00:00Z";
+        return HttpResponse.json({ id: jobId, viewedAt: secondViewedAt });
+      }),
+    );
+
+    renderAppWithJobs([POSSIBLE_DUPLICATE_JOB, secondJob], {
+      getJobs: () => ({
+        items: [
+          POSSIBLE_DUPLICATE_JOB,
+          { ...secondJob, viewedAt: secondViewedAt },
+        ],
+        total: 2,
+      }),
+    });
+    await user.click(
+      await screen.findByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    );
+    await waitFor(() =>
+      expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id]),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: `Voir l’offre ${secondJob.title}` }),
+    );
+
+    expect(new URLSearchParams(window.location.search).get("job")).toBe(secondJob.id);
+    expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id]);
+
+    releaseFirstRequest?.();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Impossible d’enregistrer cette offre comme déjà vue.",
+    );
+    await waitFor(() =>
+      expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id, secondJob.id]),
+    );
+    const firstCard = screen.getByRole("button", {
+      name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+    });
+    const secondCard = screen.getByRole("button", {
+      name: `Voir l’offre ${secondJob.title}`,
+    });
+    expect(within(firstCard).queryByText("✓ Déjà vue")).not.toBeInTheDocument();
+    expect(await within(secondCard).findByText("✓ Déjà vue")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Impossible d’enregistrer cette offre comme déjà vue.",
+    );
+  });
+
+  it("does not restore an unrelated jobs page when marking fails", async () => {
+    const user = userEvent.setup();
+    let releaseRequest: (() => void) | undefined;
+    let markStarted = false;
+    server.use(
+      http.post("*/api/jobs/:id/viewed", async () => {
+        markStarted = true;
+        await new Promise<void>((resolve) => {
+          releaseRequest = resolve;
+        });
+        return HttpResponse.json(
+          { detail: "database unavailable" },
+          { status: 500 },
+        );
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
+    });
+    const targetFilters: JobFilters = {
+      savedSearchId: "search-python",
+      period: "3d",
+      sort: "date",
+      limit: 24,
+      offset: 0,
+    };
+    const unrelatedFilters: JobFilters = { ...targetFilters, period: "7d" };
+    const targetPage: JobsPage = {
+      items: [POSSIBLE_DUPLICATE_JOB],
+      total: 1,
+      limit: 24,
+      offset: 0,
+    };
+    const unrelatedJob: JobCard = {
+      ...POSSIBLE_DUPLICATE_JOB,
+      id: "job-unrelated",
+      title: "Offre indépendante",
+    };
+    const unrelatedPage: JobsPage = {
+      items: [unrelatedJob],
+      total: 1,
+      limit: 24,
+      offset: 0,
+    };
+    queryClient.setQueryData(["jobs", targetFilters], targetPage);
+    queryClient.setQueryData(["jobs", unrelatedFilters], unrelatedPage);
+
+    renderAppWithJobs([POSSIBLE_DUPLICATE_JOB], {
+      initialUrl: "/?search=search-python&period=3d",
+      queryClient,
+    });
+    await user.click(
+      await screen.findByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    );
+    await waitFor(() => expect(markStarted).toBe(true));
+
+    const refreshedUnrelatedPage: JobsPage = {
+      ...unrelatedPage,
+      items: [{ ...unrelatedJob, company: "Entreprise actualisée" }],
+      total: 2,
+    };
+    queryClient.setQueryData(["jobs", unrelatedFilters], refreshedUnrelatedPage);
+    const cachedRefreshedUnrelatedPage = queryClient.getQueryData([
+      "jobs",
+      unrelatedFilters,
+    ]);
+    releaseRequest?.();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Impossible d’enregistrer cette offre comme déjà vue.",
+    );
+    expect(queryClient.getQueryData(["jobs", unrelatedFilters])).toBe(
+      cachedRefreshedUnrelatedPage,
+    );
+    expect(cachedRefreshedUnrelatedPage).toEqual(refreshedUnrelatedPage);
+    expect(queryClient.getQueryData(["jobs", targetFilters])).toEqual(targetPage);
+  });
+
   it("reconciles every cached jobs page after an optimistic mark", async () => {
     const user = userEvent.setup();
     let releaseRequest: (() => void) | undefined;

@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 
 import { api } from "../../api/client";
 import type { JobFilters, JobsPage } from "../../api/types";
 
 const ERROR_MESSAGE = "Impossible d’enregistrer cette offre comme déjà vue.";
+const MUTATION_SCOPE = { id: "viewed-jobs" } as const;
 type Snapshot = readonly [QueryKey, JobsPage | undefined];
 
 function filtersFromKey(queryKey: QueryKey): JobFilters | undefined {
@@ -45,13 +47,17 @@ function markPageViewed(
 
 export function useMarkJobViewed() {
   const queryClient = useQueryClient();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const mutation = useMutation({
+    scope: MUTATION_SCOPE,
     mutationFn: (jobId: string) => api.markJobViewed(jobId),
     onMutate: async (jobId) => {
       await queryClient.cancelQueries({ queryKey: ["jobs"] });
-      const snapshots = queryClient.getQueriesData<JobsPage>({
-        queryKey: ["jobs"],
-      }) as Snapshot[];
+      const snapshots = (
+        queryClient.getQueriesData<JobsPage>({
+          queryKey: ["jobs"],
+        }) as Snapshot[]
+      ).filter(([, page]) => page?.items.some((job) => job.id === jobId));
       const optimisticViewedAt = new Date().toISOString();
       for (const [queryKey, page] of snapshots) {
         const unseenOnly = filtersFromKey(queryKey)?.unseenOnly === true;
@@ -81,15 +87,16 @@ export function useMarkJobViewed() {
       for (const [queryKey, page] of context?.snapshots ?? []) {
         queryClient.setQueryData(queryKey, page);
       }
+      setErrorMessage(ERROR_MESSAGE);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["jobs"] }),
   });
 
   return {
     markViewed(jobId: string) {
-      mutation.reset();
+      setErrorMessage(null);
       mutation.mutate(jobId);
     },
-    errorMessage: mutation.isError ? ERROR_MESSAGE : null,
+    errorMessage,
   };
 }
