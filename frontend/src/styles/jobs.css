@@ -42,8 +42,18 @@
   background: color-mix(in srgb, var(--paper) 88%, var(--line));
 }
 
-.job-card--viewed .job-card__button > :not(.job-card__viewed-label) {
-  opacity: 0.62;
+.job-card--viewed h2,
+.job-card--viewed .job-card__metadata,
+.job-card--viewed .job-card__viewed-label {
+  color: var(--muted);
+}
+
+.job-card--viewed .job-card__salary {
+  color: var(--ink);
+}
+
+.job-card--viewed .job-card__source {
+  color: var(--brand-dark);
 }
 
 .job-card__viewed-label {

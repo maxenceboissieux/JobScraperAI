@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { QueryClient } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type {
   JobCard,
@@ -15,6 +16,21 @@ import { AppProviders } from "../../app/providers";
 import { server } from "../../test/server";
 
 const origin = "http://localhost:3000";
+const jobsCss = readFileSync("src/styles/jobs.css", "utf8");
+const installedStyleSheets: HTMLStyleElement[] = [];
+
+function installStyleSheet(css: string) {
+  const style = document.createElement("style");
+  style.textContent = css;
+  document.head.append(style);
+  installedStyleSheets.push(style);
+}
+
+afterEach(() => {
+  for (const style of installedStyleSheets.splice(0)) {
+    style.remove();
+  }
+});
 
 const savedSearch: SavedSearch = {
   id: "search-python",
@@ -147,6 +163,7 @@ describe("grille des offres", () => {
   });
 
   it("attenuates a viewed card and exposes the explicit label", async () => {
+    installStyleSheet(jobsCss);
     server.use(
       http.get("*/api/jobs", () =>
         HttpResponse.json({
@@ -173,6 +190,11 @@ describe("grille des offres", () => {
         name: "Voir l’offre Développeur Python, déjà vue",
       }),
     ).toBeVisible();
+    const viewedHeadingStyle = getComputedStyle(
+      within(card).getByRole("heading", { name: "Développeur Python" }),
+    );
+    expect(viewedHeadingStyle.color).toBe("var(--muted)");
+    expect(viewedHeadingStyle.opacity || "1").toBe("1");
   });
 
   it("does not change the presentation of an unseen card", async () => {
@@ -391,7 +413,7 @@ describe("grille des offres", () => {
     expect(window.location.search).toContain(`job=${POSSIBLE_DUPLICATE_JOB.id}`);
   });
 
-  it("serializes rapid marks so a failed request cannot roll back a later success", async () => {
+  it("marks different rapid clicks immediately and rolls back only the failed job", async () => {
     const user = userEvent.setup();
     const secondJob: JobCard = {
       ...POSSIBLE_DUPLICATE_JOB,
@@ -404,6 +426,7 @@ describe("grille des offres", () => {
     let releaseFirstRequest: (() => void) | undefined;
     let releaseSecondRequest: (() => void) | undefined;
     let secondViewedAt: string | null = null;
+    let jobsRequests = 0;
     const markRequests: string[] = [];
     server.use(
       http.post("*/api/jobs/:id/viewed", async ({ params }) => {
@@ -432,10 +455,13 @@ describe("grille des offres", () => {
       [POSSIBLE_DUPLICATE_JOB, secondJob],
       {
         getJobs: () => ({
-          items: [
-            POSSIBLE_DUPLICATE_JOB,
-            { ...secondJob, viewedAt: secondViewedAt },
-          ],
+          items: (() => {
+            jobsRequests += 1;
+            return [
+              POSSIBLE_DUPLICATE_JOB,
+              { ...secondJob, viewedAt: secondViewedAt },
+            ];
+          })(),
           total: 2,
         }),
       },
@@ -448,13 +474,26 @@ describe("grille des offres", () => {
     await waitFor(() =>
       expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id]),
     );
+    expect(new URLSearchParams(window.location.search).get("job")).toBe(
+      POSSIBLE_DUPLICATE_JOB.id,
+    );
+    expect(
+      within(
+        screen.getByRole("button", {
+          name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}, déjà vue`,
+        }),
+      ).getByText("✓ Déjà vue"),
+    ).toBeVisible();
+    const jobsRequestsBeforeSecondClick = jobsRequests;
 
     await user.click(
       screen.getByRole("button", { name: `Voir l’offre ${secondJob.title}` }),
     );
 
     expect(new URLSearchParams(window.location.search).get("job")).toBe(secondJob.id);
-    expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id]);
+    await waitFor(() =>
+      expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id, secondJob.id]),
+    );
     expect(
       within(
         screen.getByRole("button", {
@@ -465,18 +504,27 @@ describe("grille des offres", () => {
     expect(
       within(
         screen.getByRole("button", {
-          name: `Voir l’offre ${secondJob.title}`,
+          name: `Voir l’offre ${secondJob.title}, déjà vue`,
         }),
-      ).queryByText("✓ Déjà vue"),
-    ).not.toBeInTheDocument();
+      ).getByText("✓ Déjà vue"),
+    ).toBeVisible();
+
+    releaseSecondRequest?.();
+
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueriesData<JobsPage>({ queryKey: ["jobs"] })
+          .flatMap(([, page]) => page?.items ?? [])
+          .find((job) => job.id === secondJob.id)?.viewedAt,
+      ).toBe("2026-08-09T11:00:00Z"),
+    );
+    expect(jobsRequests).toBe(jobsRequestsBeforeSecondClick);
 
     releaseFirstRequest?.();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Impossible d’enregistrer cette offre comme déjà vue.",
-    );
-    await waitFor(() =>
-      expect(markRequests).toEqual([POSSIBLE_DUPLICATE_JOB.id, secondJob.id]),
     );
     const firstCard = screen.getByRole("button", {
       name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
@@ -489,17 +537,15 @@ describe("grille des offres", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Impossible d’enregistrer cette offre comme déjà vue.",
     );
-
-    releaseSecondRequest?.();
-
     await waitFor(() =>
-      expect(
-        queryClient
-          .getQueriesData<JobsPage>({ queryKey: ["jobs"] })
-          .flatMap(([, page]) => page?.items ?? [])
-          .find((job) => job.id === secondJob.id)?.viewedAt,
-      ).toBe("2026-08-09T11:00:00Z"),
+      expect(jobsRequests).toBeGreaterThan(jobsRequestsBeforeSecondClick),
     );
+    expect(
+      queryClient
+        .getQueriesData<JobsPage>({ queryKey: ["jobs"] })
+        .flatMap(([, page]) => page?.items ?? [])
+        .find((job) => job.id === secondJob.id)?.viewedAt,
+    ).toBe("2026-08-09T11:00:00Z");
     expect(
       within(
         screen.getByRole("button", {
@@ -509,6 +555,121 @@ describe("grille des offres", () => {
     ).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Impossible d’enregistrer cette offre comme déjà vue.",
+    );
+  });
+
+  it("deduplicates duplicate clicks while the same job mark is in flight", async () => {
+    const user = userEvent.setup();
+    let releaseRequest: (() => void) | undefined;
+    let serverViewedAt: string | null = null;
+    let jobsRequests = 0;
+    let markRequests = 0;
+    server.use(
+      http.post("*/api/jobs/:id/viewed", async ({ params }) => {
+        markRequests += 1;
+        if (markRequests === 1) {
+          await new Promise<void>((resolve) => {
+            releaseRequest = () => {
+              serverViewedAt = "2026-08-09T12:00:00Z";
+              resolve();
+            };
+          });
+        }
+        return HttpResponse.json({
+          id: String(params.id),
+          viewedAt:
+            markRequests === 1
+              ? serverViewedAt
+              : "2026-08-09T12:30:00Z",
+        });
+      }),
+    );
+
+    const { queryClient } = renderAppWithJobs([POSSIBLE_DUPLICATE_JOB], {
+      getJobs: () => {
+        jobsRequests += 1;
+        return {
+          items: [{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: serverViewedAt }],
+          total: 1,
+        };
+      },
+    });
+    const card = await screen.findByRole("button", {
+      name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+    });
+    const jobsRequestsBeforeClick = jobsRequests;
+
+    await user.click(card);
+    await waitFor(() => expect(markRequests).toBe(1));
+    const firstOptimisticTimestamp = queryClient
+      .getQueriesData<JobsPage>({ queryKey: ["jobs"] })
+      .flatMap(([, page]) => page?.items ?? [])
+      .find((job) => job.id === POSSIBLE_DUPLICATE_JOB.id)?.viewedAt;
+    expect(firstOptimisticTimestamp).not.toBeNull();
+
+    await user.click(card);
+
+    expect(markRequests).toBe(1);
+    expect(
+      queryClient
+        .getQueriesData<JobsPage>({ queryKey: ["jobs"] })
+        .flatMap(([, page]) => page?.items ?? [])
+        .find((job) => job.id === POSSIBLE_DUPLICATE_JOB.id)?.viewedAt,
+    ).toBe(firstOptimisticTimestamp);
+
+    releaseRequest?.();
+
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+    await waitFor(() => expect(jobsRequests).toBeGreaterThan(jobsRequestsBeforeClick));
+    expect(markRequests).toBe(1);
+    expect(
+      queryClient
+        .getQueriesData<JobsPage>({ queryKey: ["jobs"] })
+        .flatMap(([, page]) => page?.items ?? [])
+        .find((job) => job.id === POSSIBLE_DUPLICATE_JOB.id)?.viewedAt,
+    ).toBe("2026-08-09T12:00:00Z");
+  });
+
+  it("keeps restored cached jobs visible when rollback refetch fails", async () => {
+    const user = userEvent.setup();
+    let failedJobsRequests = 0;
+    renderAppWithJobs([POSSIBLE_DUPLICATE_JOB]);
+    await screen.findByRole("button", {
+      name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+    });
+    server.use(
+      http.post("*/api/jobs/:id/viewed", () =>
+        HttpResponse.json({ detail: "database unavailable" }, { status: 500 }),
+      ),
+      http.get(`${origin}/api/jobs`, () => {
+        failedJobsRequests += 1;
+        return HttpResponse.json({ detail: "database unavailable" }, { status: 500 });
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    );
+
+    await waitFor(() => expect(failedJobsRequests).toBe(1));
+    expect(
+      screen.getByRole("button", {
+        name: `Voir l’offre ${POSSIBLE_DUPLICATE_JOB.title}`,
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Impossible d’enregistrer cette offre comme déjà vue.",
+    );
+    expect(
+      screen.queryByText("Impossible de charger les offres."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Détails de l’offre" }),
+    ).toBeVisible();
+    expect(new URLSearchParams(window.location.search).get("job")).toBe(
+      POSSIBLE_DUPLICATE_JOB.id,
     );
   });
 

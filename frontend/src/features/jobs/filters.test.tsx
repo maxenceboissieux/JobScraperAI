@@ -1,9 +1,10 @@
+import { readFileSync } from "node:fs";
 import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { BrowserRouter, useNavigate } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SavedSearch } from "../../api/types";
 import { App } from "../../app/App";
@@ -12,6 +13,21 @@ import { server } from "../../test/server";
 import { useJobFilters } from "./useJobFilters";
 
 const origin = "http://localhost:3000";
+const baseCss = readFileSync("src/styles/base.css", "utf8");
+const installedStyleSheets: HTMLStyleElement[] = [];
+
+function installStyleSheet(css: string) {
+  const style = document.createElement("style");
+  style.textContent = css;
+  document.head.append(style);
+  installedStyleSheets.push(style);
+}
+
+afterEach(() => {
+  for (const style of installedStyleSheets.splice(0)) {
+    style.remove();
+  }
+});
 const observedFilterRenders: Array<{
   savedSearchId?: string;
   sources?: string[];
@@ -563,6 +579,13 @@ describe("barre de filtres française", () => {
     expect(screen.getByRole("combobox", { name: "Doublons" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Trier par" })).toHaveValue(
       "relevance",
+    );
+    const unseenOnly = screen.getByRole("checkbox", {
+      name: "Non vues uniquement",
+    });
+    installStyleSheet(baseCss);
+    expect(getComputedStyle(unseenOnly.closest("label") as HTMLLabelElement).display).toBe(
+      "flex",
     );
   });
 

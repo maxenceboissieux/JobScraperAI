@@ -27,7 +27,7 @@ export function JobGrid({ filters, onPageChange, onSelectJob }: JobGridProps) {
     return <JobGridSkeleton />;
   }
 
-  if (jobsQuery.isError) {
+  if (jobsQuery.isError && jobsQuery.data === undefined) {
     return (
       <section className="job-grid-state job-grid-state--error" role="alert">
         <h2>Impossible de charger les offres.</h2>
