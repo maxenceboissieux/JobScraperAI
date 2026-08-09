@@ -439,7 +439,7 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.job-filter-toggle input {
+.job-filter-field .job-filter-toggle input {
   width: 18px;
   min-height: 18px;
   margin: 0;

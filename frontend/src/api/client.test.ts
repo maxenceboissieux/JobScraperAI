@@ -152,6 +152,7 @@ describe("api", () => {
         expect(params.getAll("source")).toEqual(["freework", "linkedin"]);
         expect(params.getAll("skill")).toEqual(["C++", "Node.js"]);
         expect(params.get("duplicateState")).toBe("possible");
+        expect(params.get("unseenOnly")).toBe("true");
         expect(params.get("sort")).toBe("relevance");
         expect(params.get("limit")).toBe("24");
         expect(params.get("offset")).toBe("0");
@@ -175,10 +176,25 @@ describe("api", () => {
         sources: ["freework", "linkedin"],
         skills: ["C++", "Node.js"],
         duplicateState: "possible",
+        unseenOnly: true,
         sort: "relevance",
         limit: 24,
         offset: 0,
       }),
+    ).resolves.toEqual(page);
+  });
+
+  it("omits the unseen-only query parameter when the filter is false", async () => {
+    const page: JobsPage = { items: [], total: 0, limit: 24, offset: 0 };
+    server.use(
+      http.get(`${origin}/api/jobs`, ({ request }) => {
+        expect(new URL(request.url).searchParams.has("unseenOnly")).toBe(false);
+        return HttpResponse.json(page);
+      }),
+    );
+
+    await expect(
+      api.getJobs({ period: "3d", unseenOnly: false, limit: 24, offset: 0 }),
     ).resolves.toEqual(page);
   });
 

@@ -565,4 +565,22 @@ describe("barre de filtres française", () => {
       "relevance",
     );
   });
+
+  it("restores and toggles the unseen-only checkbox through the canonical URL", async () => {
+    const { user } = renderApplication("/?period=3d&unseenOnly=true");
+    await screen.findByRole("combobox", { name: "Recherche enregistrée" });
+
+    const disclosure = screen.getByRole("button", {
+      name: "Afficher les filtres, 1 actif",
+    });
+    await user.click(disclosure);
+
+    const unseenOnly = screen.getByRole("checkbox", { name: "Non vues uniquement" });
+    expect(unseenOnly).toBeChecked();
+
+    await user.click(unseenOnly);
+
+    expect(unseenOnly).not.toBeChecked();
+    expect(new URLSearchParams(window.location.search).has("unseenOnly")).toBe(false);
+  });
 });
