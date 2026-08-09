@@ -227,6 +227,85 @@ def test_unknown_saved_search_filter_returns_404(client: TestClient) -> None:
     assert response.json() == {"detail": "La recherche enregistrée n’existe pas."}
 
 
+def test_mark_viewed_is_idempotent_and_serialized_on_cards_and_details(
+    client: TestClient, session: Session
+) -> None:
+    _search_id, recent_id, _older_id, _undated_id = seed_jobs(session)
+    recent = JobRepository(session).get_job(recent_id)
+    assert recent is not None
+    recent.details_fetched_at = utc_now()
+    recent.detail_provenance = {
+        group: recent.details_fetched_at.isoformat()
+        for group in ("description", "salary", "skills", "benefits")
+    }
+    session.commit()
+
+    before = client.get("/api/jobs", params={"period": "all"})
+    first = client.post(f"/api/jobs/{recent_id}/viewed")
+    second = client.post(f"/api/jobs/{recent_id}/viewed")
+    after = client.get("/api/jobs", params={"period": "all"})
+    details = client.get(f"/api/jobs/{recent_id}")
+
+    assert before.status_code == first.status_code == second.status_code == 200
+    assert (
+        next(item for item in before.json()["items"] if item["id"] == recent_id)[
+            "viewedAt"
+        ]
+        is None
+    )
+    assert first.json()["id"] == recent_id
+    assert first.json()["viewedAt"] == second.json()["viewedAt"]
+    assert (
+        next(item for item in after.json()["items"] if item["id"] == recent_id)[
+            "viewedAt"
+        ]
+        == first.json()["viewedAt"]
+    )
+    assert details.status_code == 200
+    assert details.json()["viewedAt"] == first.json()["viewedAt"]
+
+
+def test_mark_viewed_returns_404_for_unknown_job(client: TestClient) -> None:
+    response = client.post("/api/jobs/00000000-0000-0000-0000-000000000000/viewed")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "L’offre demandée n’existe pas."}
+
+
+def test_unseen_only_filters_totals_saved_search_and_pagination(
+    client: TestClient, session: Session
+) -> None:
+    search_id, recent_id, older_id, _undated_id = seed_jobs(session)
+    marked = client.post(f"/api/jobs/{recent_id}/viewed")
+
+    first_page = client.get(
+        "/api/jobs",
+        params={
+            "savedSearchId": search_id,
+            "period": "all",
+            "unseenOnly": "true",
+            "limit": 1,
+            "offset": 0,
+        },
+    )
+    second_page = client.get(
+        "/api/jobs",
+        params={
+            "savedSearchId": search_id,
+            "period": "all",
+            "unseenOnly": "true",
+            "limit": 1,
+            "offset": 1,
+        },
+    )
+
+    assert marked.status_code == 200
+    assert first_page.status_code == second_page.status_code == 200
+    assert first_page.json()["total"] == second_page.json()["total"] == 1
+    assert [item["id"] for item in first_page.json()["items"]] == [older_id]
+    assert second_page.json()["items"] == []
+
+
 def test_job_detail_returns_cache_metadata_and_linked_entities(
     client: TestClient, session: Session
 ) -> None:

@@ -13,6 +13,7 @@ from jobscraper.api.dependencies import get_session
 from jobscraper.api.schemas import (
     JobCard,
     JobDetails,
+    JobViewedResponse,
     JobsPage,
     PossibleDuplicate,
     SourceLink,
@@ -84,6 +85,7 @@ def _card(session: Session, job: CanonicalJob) -> JobCard:
         experience_level=job.experience_level,
         remote=job.remote,
         posted_at=job.posted_at,
+        viewed_at=job.viewed_at,
         sources=[
             SourceLink(source=item.source, url=item.url, active=item.active)
             for item in listings
@@ -116,6 +118,7 @@ def list_jobs(
     duplicate_state: Literal["confirmed", "possible", "none"] | None = Query(
         default=None, alias="duplicateState"
     ),
+    unseen_only: bool = Query(default=False, alias="unseenOnly"),
     sort: Literal["date", "relevance"] | None = None,
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -142,6 +145,7 @@ def list_jobs(
         sources=source,
         skills=skill,
         duplicate_state=duplicate_state,
+        unseen_only=unseen_only,
         sort=sort,
     )
     return JobsPage(
@@ -150,6 +154,23 @@ def list_jobs(
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("/{canonical_job_id}/viewed", response_model=JobViewedResponse)
+def mark_job_viewed(
+    canonical_job_id: str,
+    session: Session = Depends(get_session),
+) -> JobViewedResponse:
+    try:
+        job = JobRepository(session).mark_viewed(canonical_job_id)
+    except LookupError:
+        raise HTTPException(
+            status_code=404, detail="L’offre demandée n’existe pas."
+        ) from None
+    session.commit()
+    if job.viewed_at is None:
+        raise RuntimeError("Viewed timestamp was not persisted")
+    return JobViewedResponse(id=job.id, viewed_at=job.viewed_at)
 
 
 @router.get("/{canonical_job_id}", response_model=JobDetails)

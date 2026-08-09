@@ -175,6 +175,7 @@ class JobCard(ApiModel):
     experience_level: str | None
     remote: bool | None
     posted_at: datetime | None
+    viewed_at: datetime | None
     sources: list[SourceLink]
     duplicate_state: Literal["confirmed", "possible", "none"]
     possible_duplicates: list[PossibleDuplicate]
@@ -194,6 +195,11 @@ class JobsPage(ApiModel):
     total: int
     limit: int
     offset: int
+
+
+class JobViewedResponse(ApiModel):
+    id: str
+    viewed_at: datetime
 
 
 class StartSyncRequest(ApiModel):
