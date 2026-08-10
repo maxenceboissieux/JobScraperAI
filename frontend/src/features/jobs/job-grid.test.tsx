@@ -184,12 +184,32 @@ describe("grille des offres", () => {
 
     const card = await screen.findByRole("article");
     expect(card).toHaveClass("job-card--viewed");
-    expect(within(card).getByText("✓ Déjà vue")).toBeVisible();
+    const button = within(card).getByRole("button", {
+      name: "Voir l’offre Développeur Python, déjà vue",
+    });
+    const header = card.querySelector<HTMLElement>(".job-card__header");
+    expect(header).not.toBeNull();
+    expect(header).toHaveClass("job-card__header--viewed");
     expect(
-      within(card).getByRole("button", {
-        name: "Voir l’offre Développeur Python, déjà vue",
+      within(header as HTMLElement).getByRole("heading", {
+        name: "Développeur Python",
       }),
     ).toBeVisible();
+    expect(within(header as HTMLElement).getByText("✓ Déjà vue")).toBeVisible();
+
+    const cardStyle = getComputedStyle(card);
+    const buttonStyle = getComputedStyle(button);
+    const headerStyle = getComputedStyle(header as HTMLElement);
+    const labelStyle = getComputedStyle(
+      within(header as HTMLElement).getByText("✓ Déjà vue"),
+    );
+    expect(cardStyle.height).toBe("100%");
+    expect(buttonStyle.height).toBe("100%");
+    expect(headerStyle.display).toBe("grid");
+    expect(headerStyle.gridTemplateColumns).toBe("minmax(0, 1fr) auto");
+    expect(labelStyle.marginTop).toBe("0px");
+    expect(labelStyle.marginBottom).toBe("0px");
+    expect(button).toBeVisible();
     const viewedHeadingStyle = getComputedStyle(
       within(card).getByRole("heading", { name: "Développeur Python" }),
     );
@@ -198,11 +218,19 @@ describe("grille des offres", () => {
   });
 
   it("does not change the presentation of an unseen card", async () => {
+    installStyleSheet(jobsCss);
     renderAppWithJobs([{ ...POSSIBLE_DUPLICATE_JOB, viewedAt: null }]);
 
     const card = await screen.findByRole("article");
     expect(card).not.toHaveClass("job-card--viewed");
     expect(within(card).queryByText("✓ Déjà vue")).not.toBeInTheDocument();
+    const header = card.querySelector<HTMLElement>(".job-card__header");
+    expect(header).not.toBeNull();
+    expect(header).not.toHaveClass("job-card__header--viewed");
+    expect(within(header as HTMLElement).getByRole("heading")).toHaveTextContent(
+      "Développeur Python",
+    );
+    expect(getComputedStyle(header as HTMLElement).display).not.toBe("grid");
   });
 
   it("traduit les slugs API sur les cartes", async () => {

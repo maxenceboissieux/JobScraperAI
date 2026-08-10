@@ -18,6 +18,7 @@
 
 .job-card {
   min-width: 0;
+  height: 100%;
 }
 
 .job-card__button {
@@ -25,6 +26,7 @@
   display: flex;
   width: 100%;
   min-height: 210px;
+  height: 100%;
   flex-direction: column;
   align-items: flex-start;
   border: 1px solid var(--line-strong);
@@ -56,9 +58,26 @@
   color: var(--brand-dark);
 }
 
+.job-card__header {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.job-card__header--viewed {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.job-card__header h2 {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
 .job-card__viewed-label {
   display: inline-flex;
-  margin: 0 0 10px auto;
+  margin: 0;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   padding: 3px 8px;

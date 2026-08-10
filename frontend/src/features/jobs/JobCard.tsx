@@ -33,10 +33,16 @@ export function JobCard({ job, onSelect }: JobCardProps) {
         onClick={() => onSelect(job.id)}
         aria-label={`Voir l’offre ${job.title}${job.viewedAt ? ", déjà vue" : ""}`}
       >
-        {job.viewedAt ? (
-          <span className="job-card__viewed-label">✓ Déjà vue</span>
-        ) : null}
-        <h2>{job.title}</h2>
+        <div
+          className={`job-card__header${
+            job.viewedAt ? " job-card__header--viewed" : ""
+          }`}
+        >
+          <h2>{job.title}</h2>
+          {job.viewedAt ? (
+            <span className="job-card__viewed-label">✓ Déjà vue</span>
+          ) : null}
+        </div>
         {metadata.length > 0 ? (
           <p className="job-card__metadata">{metadata.join(" · ")}</p>
         ) : null}
